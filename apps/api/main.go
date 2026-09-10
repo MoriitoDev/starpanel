@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
@@ -35,18 +36,18 @@ func saveDashboardHandler(store *Store) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
 			return
 		}
-		d.Normalize()
-		if err := d.Validate(); err != nil {
+		// The store owns normalising, validating and writing; the only
+		// decision left here is which kind of failure came back.
+		saved, err := store.Save(d)
+		var invalid *InvalidError
+		switch {
+		case errors.As(err, &invalid):
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-			return
-		}
-		// Save re-validates, but validation already passed above, so any
-		// error here is a storage failure.
-		if err := store.Save(d); err != nil {
+		case err != nil:
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
+		default:
+			writeJSON(w, http.StatusOK, saved)
 		}
-		writeJSON(w, http.StatusOK, d)
 	}
 }
 

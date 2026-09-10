@@ -8,8 +8,18 @@ import (
 	"sync"
 )
 
+// InvalidError reports a document the store refused because it does not
+// validate. Callers use it to tell a caller's mistake, worth explaining to
+// whoever sent it, from a storage failure, which is not.
+type InvalidError struct{ Err error }
+
+func (e *InvalidError) Error() string { return e.Err.Error() }
+func (e *InvalidError) Unwrap() error { return e.Err }
+
 // Store persists the Dashboard as a single flat JSON document — no database
-// in v1 (spec: enabled set, layout, and Theme live in one document).
+// in v1 (spec: enabled set, layout, and Theme live in one document). It owns
+// the invariant that a document coming back out has been migrated, normalised
+// and validated, so no caller can skip any of the three.
 type Store struct {
 	mu   sync.Mutex
 	path string
@@ -42,28 +52,35 @@ func (s *Store) load() (Dashboard, error) {
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return Dashboard{}, fmt.Errorf("parse %s: %w", s.path, err)
 	}
-	d.Migrate()
+	d.migrate()
+	d.normalize()
+	if err := d.validate(); err != nil {
+		return Dashboard{}, fmt.Errorf("%s is not a valid Dashboard: %w", s.path, err)
+	}
 	return d, nil
 }
 
-// Save validates and atomically writes the dashboard document.
-func (s *Store) Save(d Dashboard) error {
-	d.Normalize()
-	if err := d.Validate(); err != nil {
-		return err
+// Save normalises, validates and atomically writes the Dashboard, returning
+// it as stored so a caller can answer with exactly what a later Load would
+// give back. A document that fails validation is never written; it comes back
+// as an *InvalidError.
+func (s *Store) Save(d Dashboard) (Dashboard, error) {
+	d.normalize()
+	if err := d.validate(); err != nil {
+		return Dashboard{}, &InvalidError{Err: err}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	raw, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encode dashboard: %w", err)
+		return Dashboard{}, fmt.Errorf("encode dashboard: %w", err)
 	}
 	tmp := s.path + ".tmp"
 	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", tmp, err)
+		return Dashboard{}, fmt.Errorf("write %s: %w", tmp, err)
 	}
 	if err := os.Rename(tmp, s.path); err != nil {
-		return fmt.Errorf("replace %s: %w", s.path, err)
+		return Dashboard{}, fmt.Errorf("replace %s: %w", s.path, err)
 	}
-	return nil
+	return d, nil
 }

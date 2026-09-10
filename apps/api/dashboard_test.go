@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -207,6 +208,67 @@ func TestDashboardSaveRejectsMalformedJSON(t *testing.T) {
 	}
 }
 
+// The frontend keeps the PUT response in memory until the next poll, so the
+// answer has to be the document as stored, defaults and all.
+func TestDashboardSaveAnswersWithTheStoredDocument(t *testing.T) {
+	ts, _ := newTestServer(t)
+	defer ts.Close()
+
+	sent := Dashboard{
+		Widgets: []Widget{{ID: "solo", Plugin: "sysmon", Size: "small", Enabled: true}},
+		Theme:   Theme{Mode: "auto", Light: defaultLightPalette(), Dark: defaultDarkPalette()},
+	}
+	res, body := doJSON(t, ts, http.MethodPut, "/api/v1/dashboard", sent)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", res.StatusCode)
+	}
+	raw, _ := json.Marshal(body)
+	var got Dashboard
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(got.Widgets) != 1 {
+		t.Fatalf("widgets = %+v, want one", got.Widgets)
+	}
+	if got.Widgets[0].PollSeconds != defaultPollSeconds {
+		t.Errorf("pollSeconds = %d, want the default %d", got.Widgets[0].PollSeconds, defaultPollSeconds)
+	}
+}
+
+// A document that cannot validate is the operator's problem to see. Serving
+// it would hand the frontend a Dashboard it cannot render, and the colours it
+// would paint with are undefined.
+func TestDashboardGetFailsLoudlyOnAnInvalidStoredDocument(t *testing.T) {
+	ts, dataDir := newTestServer(t)
+	defer ts.Close()
+
+	broken := `{"widgets":[{"id":"a","plugin":"sysmon","size":"huge","enabled":true,"pollSeconds":10}],` +
+		`"theme":{"mode":"solarized","light":{"canvas":"#fff"},"dark":{"canvas":"#000"}}}`
+	if err := os.WriteFile(filepath.Join(dataDir, "dashboard.json"), []byte(broken), 0o644); err != nil {
+		t.Fatalf("write broken document: %v", err)
+	}
+
+	res, body := doJSON(t, ts, http.MethodGet, "/api/v1/dashboard", nil)
+	if res.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", res.StatusCode)
+	}
+	message, _ := body["error"].(string)
+	if !strings.Contains(message, "size must be") {
+		t.Errorf("error = %q, want the validation reason", message)
+	}
+}
+
+// A fresh install seeds this document, so the store has to accept it.
+func TestDefaultDashboardIsStorable(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if _, err := store.Save(DefaultDashboard()); err != nil {
+		t.Fatalf("the seeded Dashboard was refused: %v", err)
+	}
+}
+
 func TestDashboardPersistsAcrossRestart(t *testing.T) {
 	ts, dataDir := newTestServer(t)
 
@@ -271,9 +333,6 @@ func TestStoreLoadsLegacyFlatThemeAsDefaults(t *testing.T) {
 	if got.Theme.Mode != "light" {
 		t.Errorf("mode = %q, want the stored light", got.Theme.Mode)
 	}
-	if err := got.Validate(); err != nil {
-		t.Errorf("migrated doc does not validate: %v", err)
-	}
 	if len(got.Widgets) != 1 {
 		t.Fatalf("widgets = %+v, want one", got.Widgets)
 	}
@@ -316,9 +375,6 @@ func TestStoreLoadsOldThreeColorPalettesAsDefaults(t *testing.T) {
 	if got.Theme.Mode != "dark" {
 		t.Errorf("mode = %q, want the stored dark", got.Theme.Mode)
 	}
-	if err := got.Validate(); err != nil {
-		t.Errorf("migrated doc does not validate: %v", err)
-	}
 }
 
 // The palette shipped in v1 carried 29 tokens. A document saved with those
@@ -355,8 +411,5 @@ func TestStoreLoadsV1PaletteAsDefaults(t *testing.T) {
 	}
 	if got.Theme.Dark != defaultDarkPalette() {
 		t.Errorf("dark palette = %+v, want the default %+v", got.Theme.Dark, defaultDarkPalette())
-	}
-	if err := got.Validate(); err != nil {
-		t.Errorf("migrated doc does not validate: %v", err)
 	}
 }

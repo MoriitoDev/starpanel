@@ -105,10 +105,11 @@ func defaultDarkPalette() Palette {
 	}
 }
 
-// Migrate upgrades older documents. Palettes saved with the v1 token set are
+// migrate upgrades older documents. Palettes saved with the v1 token set are
 // replaced by the DESIGN.md defaults rather than carrying their colours over,
-// and placeholder "sample" widgets become hello-widget instances.
-func (d *Dashboard) Migrate() {
+// and placeholder "sample" widgets become hello-widget instances. It belongs
+// to the store, the only thing that reads documents off disk.
+func (d *Dashboard) migrate() {
 	d.Theme.Light = d.Theme.Light.orDefault(defaultLightPalette())
 	d.Theme.Dark = d.Theme.Dark.orDefault(defaultDarkPalette())
 	for i := range d.Widgets {
@@ -175,10 +176,10 @@ func DefaultDashboard() Dashboard {
 	}
 }
 
-// Normalize fills the unset poll intervals before validation. Palette tokens
-// are not defaulted here: a save with a missing token is rejected, and only
-// documents read from disk are healed (see Migrate).
-func (d *Dashboard) Normalize() {
+// normalize fills the unset poll intervals before validation. Palette tokens
+// are not defaulted here: a document with a missing token is rejected rather
+// than quietly repainted.
+func (d *Dashboard) normalize() {
 	for i := range d.Widgets {
 		if d.Widgets[i].PollSeconds <= 0 {
 			d.Widgets[i].PollSeconds = defaultPollSeconds
@@ -186,7 +187,8 @@ func (d *Dashboard) Normalize() {
 	}
 }
 
-func (d *Dashboard) Validate() error {
+// validate reports the first reason a Dashboard cannot be rendered or stored.
+func (d *Dashboard) validate() error {
 	seen := map[string]bool{}
 	for i, w := range d.Widgets {
 		if w.ID == "" {
