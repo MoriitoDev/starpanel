@@ -33,9 +33,9 @@ func newTestServerWithPlugins(t *testing.T, filesByFolder map[string]map[string]
 		t.Fatalf("new store: %v", err)
 	}
 	registry := NewPluginRegistry(pluginsDir)
-	supervisor := NewSupervisor(registry, nil)
-	t.Cleanup(supervisor.StopAll)
-	return httptest.NewServer(newMux(store, registry, supervisor))
+	backends := NewBackends(registry, nil)
+	t.Cleanup(backends.Stop)
+	return httptest.NewServer(newMux(store, registry, backends))
 }
 
 func TestPluginListingShowsValidAndReportsInvalid(t *testing.T) {

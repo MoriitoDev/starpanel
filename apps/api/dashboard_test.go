@@ -20,9 +20,9 @@ func newTestServer(t *testing.T) (*httptest.Server, string) {
 		t.Fatalf("new store: %v", err)
 	}
 	registry := NewPluginRegistry(t.TempDir())
-	supervisor := NewSupervisor(registry, nil)
-	t.Cleanup(supervisor.StopAll)
-	return httptest.NewServer(newMux(store, registry, supervisor)), dataDir
+	backends := NewBackends(registry, nil)
+	t.Cleanup(backends.Stop)
+	return httptest.NewServer(newMux(store, registry, backends)), dataDir
 }
 
 func doJSON(t *testing.T, ts *httptest.Server, method, path string, body any) (*http.Response, map[string]any) {

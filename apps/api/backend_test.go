@@ -50,7 +50,7 @@ func backendManifest(t *testing.T, pluginName string) map[string]string {
 	}
 }
 
-func newBackendTestServer(t *testing.T, filesByFolder map[string]map[string]string) (*httptest.Server, *Supervisor) {
+func newBackendTestServer(t *testing.T, filesByFolder map[string]map[string]string) (*httptest.Server, *Backends) {
 	t.Helper()
 	pluginsDir := t.TempDir()
 	for folder, files := range filesByFolder {
@@ -61,11 +61,11 @@ func newBackendTestServer(t *testing.T, filesByFolder map[string]map[string]stri
 		t.Fatalf("new store: %v", err)
 	}
 	registry := NewPluginRegistry(pluginsDir)
-	supervisor := NewSupervisor(registry, nil)
-	t.Cleanup(supervisor.StopAll)
-	ts := httptest.NewServer(newMux(store, registry, supervisor))
+	backends := NewBackends(registry, nil)
+	t.Cleanup(backends.Stop)
+	ts := httptest.NewServer(newMux(store, registry, backends))
 	t.Cleanup(ts.Close)
-	return ts, supervisor
+	return ts, backends
 }
 
 func getBody(t *testing.T, url string) (int, string) {
@@ -89,12 +89,12 @@ func getBody(t *testing.T, url string) (int, string) {
 
 func TestProxyPassthroughToSubprocess(t *testing.T) {
 	t.Setenv("STAR_PANEL_TEST_HELPER", "1")
-	ts, supervisor := newBackendTestServer(t, map[string]map[string]string{
+	ts, backends := newBackendTestServer(t, map[string]map[string]string{
 		"backend-demo": backendManifest(t, "backend-demo"),
 	})
 
 	// Core startup: declared backends begin serving before any request.
-	supervisor.StartDeclared()
+	backends.Start()
 
 	status, body := getBody(t, ts.URL+"/api/v1/plugins/backend-demo/proxy/ping")
 	if status != http.StatusOK {
@@ -156,5 +156,19 @@ func TestFrontendOnlyPluginHasNoBackendAndRejectsProxy(t *testing.T) {
 	}
 	if !strings.Contains(proxyBody, "no backend") {
 		t.Errorf("expected clear no-backend error, got %s", proxyBody)
+	}
+}
+
+// A name no folder declares is the caller's mistake, not a backend that
+// failed, and the two come back with different statuses.
+func TestProxyOfUnknownPluginIsNotFound(t *testing.T) {
+	ts, _ := newBackendTestServer(t, nil)
+
+	status, body := getBody(t, ts.URL+"/api/v1/plugins/nope/proxy/ping")
+	if status != http.StatusNotFound {
+		t.Fatalf("status = %d, body %s, want 404", status, body)
+	}
+	if !strings.Contains(body, "plugin not found") {
+		t.Errorf("body = %s, want a not-found error", body)
 	}
 }

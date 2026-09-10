@@ -20,11 +20,16 @@ import (
 const restartBackoff = 2 * time.Second
 const startWaitTimeout = 3 * time.Second
 
-// Supervisor starts plugin backend subprocesses, restarts them while core
-// runs, and proxies the per-plugin /proxy/ path to their localhost HTTP.
-// Builtins are core-provided handlers answering for plugins without a
-// subprocess (the built-in system-stats plugin).
-type Supervisor struct {
+// ErrPluginNotFound reports a Plugin name no folder declares, so the
+// transport can answer 404 instead of blaming a backend that never existed.
+var ErrPluginNotFound = errors.New("plugin not found")
+
+// Backends resolves a Plugin to something the transport can forward /proxy/
+// traffic to. A Plugin that declares a backend command runs as a supervised
+// subprocess on a localhost port; a built-in answers in process. The caller
+// asks for a handler and never learns which of the two it got — the port, the
+// restart loop and the reverse proxy stay behind this seam.
+type Backends struct {
 	registry *PluginRegistry
 	builtins map[string]http.Handler
 
@@ -33,8 +38,10 @@ type Supervisor struct {
 	base  context.Context
 }
 
-func NewSupervisor(registry *PluginRegistry, builtins map[string]http.Handler) *Supervisor {
-	return &Supervisor{
+// NewBackends takes the built-ins from the composition root: core registers
+// the Plugins it answers itself, so this module never imports one of them.
+func NewBackends(registry *PluginRegistry, builtins map[string]http.Handler) *Backends {
+	return &Backends{
 		registry: registry,
 		builtins: builtins,
 		procs:    map[string]*backendProc{},
@@ -42,27 +49,60 @@ func NewSupervisor(registry *PluginRegistry, builtins map[string]http.Handler) *
 	}
 }
 
-// StartDeclared launches subprocesses for every valid plugin that declares
-// a backend. Failures are logged and never stop core.
-func (s *Supervisor) StartDeclared() {
-	for _, entry := range s.registry.Discover() {
+// Start launches a subprocess for every valid Plugin that declares one.
+// Failures are logged and never stop core.
+func (b *Backends) Start() {
+	for _, entry := range b.registry.Discover() {
 		if entry.Err != nil || entry.Manifest.Backend == nil {
 			continue
 		}
-		if err := s.Ensure(entry.Manifest.Name); err != nil {
+		if err := b.ensure(entry.Manifest.Name); err != nil {
 			log.Printf("plugin %q backend not started: %v", entry.Manifest.Name, err)
 		}
 	}
 }
 
-// StopAll kills every subprocess; called on core shutdown.
-func (s *Supervisor) StopAll() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for name, p := range s.procs {
+// Stop kills every subprocess; called on core shutdown.
+func (b *Backends) Stop() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for name, p := range b.procs {
 		p.cancel()
-		delete(s.procs, name)
+		delete(b.procs, name)
 	}
+}
+
+// Handler returns what to forward this Plugin's /proxy/ traffic to, or an
+// error saying why it cannot answer. The handler expects a path relative to
+// the backend, because the caller owns the proxy prefix.
+func (b *Backends) Handler(name string) (http.Handler, error) {
+	entry, ok := b.registry.Find(name)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrPluginNotFound, name)
+	}
+	if entry.Err != nil {
+		return nil, fmt.Errorf("plugin manifest invalid: %w", entry.Err)
+	}
+	// Core-provided Plugins answer in process, no subprocess needed.
+	if builtin, ok := b.builtins[name]; ok {
+		return builtin, nil
+	}
+	if entry.Manifest.Backend == nil {
+		return nil, fmt.Errorf("plugin %q has no backend", name)
+	}
+	if err := b.ensure(name); err != nil {
+		return nil, fmt.Errorf("plugin backend unavailable: %w", err)
+	}
+	port, ok := b.port(name)
+	if !ok {
+		return nil, errors.New("plugin backend unavailable")
+	}
+	target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(port)}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "plugin backend unavailable: " + err.Error()})
+	}
+	return proxy, nil
 }
 
 type backendProc struct {
@@ -80,32 +120,30 @@ func (p *backendProc) running() bool {
 	}
 }
 
-var errNoBackend = errors.New("plugin has no backend")
-
-// Ensure starts the subprocess for a plugin if it is not running yet.
-func (s *Supervisor) Ensure(name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if p, ok := s.procs[name]; ok && p.running() {
+// ensure starts the subprocess for a Plugin if it is not running yet.
+func (b *Backends) ensure(name string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if p, ok := b.procs[name]; ok && p.running() {
 		return nil
 	}
-	entry, ok := s.registry.Find(name)
+	entry, ok := b.registry.Find(name)
 	if !ok {
-		return fmt.Errorf("plugin not found: %s", name)
+		return fmt.Errorf("%w: %s", ErrPluginNotFound, name)
 	}
 	if entry.Err != nil {
 		return entry.Err
 	}
 	if entry.Manifest.Backend == nil {
-		return fmt.Errorf("%w: %s", errNoBackend, name)
+		return fmt.Errorf("plugin %q has no backend", name)
 	}
 	port, err := freePort()
 	if err != nil {
 		return fmt.Errorf("allocate port: %w", err)
 	}
-	ctx, cancel := context.WithCancel(s.base)
+	ctx, cancel := context.WithCancel(b.base)
 	p := &backendProc{port: port, cancel: cancel, done: make(chan struct{})}
-	s.procs[name] = p
+	b.procs[name] = p
 	go runSupervised(ctx, p.done, name, entry.Dir, entry.Manifest.Backend.Command, port)
 	if err := waitUntilListening(port, startWaitTimeout); err != nil {
 		// The restart loop keeps trying; the proxy reports the outage.
@@ -114,10 +152,10 @@ func (s *Supervisor) Ensure(name string) error {
 	return nil
 }
 
-func (s *Supervisor) port(name string) (int, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	p, ok := s.procs[name]
+func (b *Backends) port(name string) (int, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	p, ok := b.procs[name]
 	if !ok {
 		return 0, false
 	}
@@ -156,52 +194,6 @@ func runSupervised(ctx context.Context, done chan<- struct{}, name, dir string, 
 			return
 		case <-time.After(restartBackoff):
 		}
-	}
-}
-
-func (s *Supervisor) proxyHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
-		rest := r.PathValue("rest")
-		entry, ok := s.registry.Find(name)
-		if !ok {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "plugin not found: " + name})
-			return
-		}
-		if entry.Err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "plugin manifest invalid: " + entry.Err.Error()})
-			return
-		}
-		// Core-provided plugins answer in process, no subprocess needed.
-		if builtin, ok := s.builtins[name]; ok {
-			forwarded := r.Clone(r.Context())
-			forwarded.URL.Path = "/" + rest
-			forwarded.URL.RawPath = ""
-			builtin.ServeHTTP(w, forwarded)
-			return
-		}
-		if entry.Manifest.Backend == nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": fmt.Sprintf("plugin %q has no backend", name)})
-			return
-		}
-		if err := s.Ensure(name); err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "plugin backend unavailable: " + err.Error()})
-			return
-		}
-		port, ok := s.port(name)
-		if !ok {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "plugin backend unavailable"})
-			return
-		}
-		target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(port)}
-		proxy := httputil.NewSingleHostReverseProxy(target)
-		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "plugin backend unavailable: " + err.Error()})
-		}
-		// The backend sees its own paths: strip the proxy prefix.
-		forwarded := r.Clone(r.Context())
-		forwarded.URL.Path = "/" + rest
-		proxy.ServeHTTP(w, forwarded)
 	}
 }
 

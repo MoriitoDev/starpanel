@@ -19,9 +19,9 @@ func newBuiltinTestServer(t *testing.T, builtins map[string]http.Handler) (*http
 		t.Fatalf("new store: %v", err)
 	}
 	registry := NewPluginRegistry(pluginsDir)
-	supervisor := NewSupervisor(registry, builtins)
-	t.Cleanup(supervisor.StopAll)
-	ts := httptest.NewServer(newMux(store, registry, supervisor))
+	backends := NewBackends(registry, builtins)
+	t.Cleanup(backends.Stop)
+	ts := httptest.NewServer(newMux(store, registry, backends))
 	t.Cleanup(ts.Close)
 	return ts, registry
 }

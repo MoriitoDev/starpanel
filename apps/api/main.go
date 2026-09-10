@@ -57,15 +57,36 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func newMux(store *Store, registry *PluginRegistry, supervisor *Supervisor) *http.ServeMux {
+func newMux(store *Store, registry *PluginRegistry, backends *Backends) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/health", healthHandler)
 	mux.HandleFunc("GET /api/v1/dashboard", getDashboardHandler(store))
 	mux.HandleFunc("PUT /api/v1/dashboard", saveDashboardHandler(store))
 	mux.HandleFunc("GET /api/v1/plugins", listPluginsHandler(registry))
 	mux.HandleFunc("GET /api/v1/plugins/{name}/modules/{rest...}", pluginModuleHandler(registry))
-	mux.HandleFunc("/api/v1/plugins/{name}/proxy/{rest...}", supervisor.proxyHandler())
+	mux.HandleFunc("/api/v1/plugins/{name}/proxy/{rest...}", proxyHandler(backends))
 	return mux
+}
+
+// proxyHandler forwards a Plugin's traffic to whatever backend the Plugins
+// module hands back. Stripping the proxy prefix is the transport's job: the
+// backend sees its own paths, and that is part of the Plugin contract.
+func proxyHandler(backends *Backends) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		handler, err := backends.Handler(r.PathValue("name"))
+		if err != nil {
+			status := http.StatusBadGateway
+			if errors.Is(err, ErrPluginNotFound) {
+				status = http.StatusNotFound
+			}
+			writeJSON(w, status, map[string]string{"error": err.Error()})
+			return
+		}
+		forwarded := r.Clone(r.Context())
+		forwarded.URL.Path = "/" + r.PathValue("rest")
+		forwarded.URL.RawPath = ""
+		handler.ServeHTTP(w, forwarded)
+	}
 }
 
 // resolveDir locates the data or plugins folder. Left alone both live beside
@@ -109,14 +130,14 @@ func main() {
 	builtins := map[string]http.Handler{
 		"system-stats": newStatsHandler(newStatsSource()),
 	}
-	supervisor := NewSupervisor(registry, builtins)
-	supervisor.StartDeclared()
+	backends := NewBackends(registry, builtins)
+	backends.Start()
 
 	web, err := dashboardFS()
 	if err != nil {
 		log.Fatalf("open embedded dashboard: %v", err)
 	}
-	mux := newMux(store, registry, supervisor)
+	mux := newMux(store, registry, backends)
 	mux.Handle("/", webHandler(web))
 
 	server := &http.Server{
@@ -129,7 +150,7 @@ func main() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		_ = server.Shutdown(shutdownCtx)
-		supervisor.StopAll()
+		backends.Stop()
 	}()
 
 	log.Printf("star panel on %s (data dir: %s, plugins dir: %s)", *addr, resolvedData, resolvedPlugins)
