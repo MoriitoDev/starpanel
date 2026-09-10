@@ -1,0 +1,8 @@
+{
+  "name": "star-panel",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "pnpm --filter @star-panel/web build && go build -C apps/api ."
+  }
+}

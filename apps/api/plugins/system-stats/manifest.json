@@ -1,0 +1,7 @@
+{
+  "name": "system-stats",
+  "version": "0.1.0",
+  "widgets": [
+    { "id": "system-stats", "title": "System Stats", "module": "widget.js" }
+  ]
+}

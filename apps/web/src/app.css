@@ -1,0 +1,213 @@
+/* Star Panel design tokens.
+
+   The single source of every value in DESIGN.md: utilities and components
+   reference tokens by name, never literals (ADR-0004). Light is the default
+   palette so the shell renders before the Dashboard loads; App.svelte then
+   overrides these variables inline with the active Palette. */
+
+/* Sources are explicit because this project ships no .gitignore: automatic
+   detection would also scan dist/ and feed the built CSS back into itself,
+   which makes deleted utilities reappear on the next build. */
+@import "tailwindcss" source(none);
+@source "../src";
+@source "../index.html";
+
+/* Geist Sans, variable, latin subset. OFL licence sits beside the file. */
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/geist-sans-variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --canvas: #f7f8f9;
+  --surface: #ffffff;
+  --surface-soft: #f2f3f5;
+  --border: #e5e7eb;
+  --border-soft: #eff1f3;
+  --ink: #0d0f12;
+  --body: #40454d;
+  --mute: #8b919b;
+  --accent: #4f6bff;
+  --accent-press: #3d57ee;
+  --on-accent: #ffffff;
+  --danger: #e5484d;
+  --success: #2e9e68;
+  --focus-ring: rgba(79, 107, 255, .45);
+}
+
+/* Before the Dashboard loads there is no Palette to inject, so the shell
+   follows the system preference instead of flashing light on a dark OS. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #0e1012;
+    --surface: #17191c;
+    --surface-soft: #121417;
+    --border: #2a2e34;
+    --border-soft: #22262b;
+    --ink: #f3f4f6;
+    --body: #c7cbd1;
+    --mute: #878d96;
+    --accent: #7c8dff;
+    --accent-press: #6a7cff;
+    --on-accent: #0e1012;
+    --danger: #ff6369;
+    --success: #3dd68c;
+    --focus-ring: rgba(124, 141, 255, .5);
+  }
+}
+
+/* `static` keeps these emitted as real CSS variables whether or not a utility
+   happens to use them: Plugin widgets consume them directly (DESIGN.md §5),
+   so var(--radius-md) and var(--text-base) have to resolve at runtime. */
+@theme static {
+  --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  --text-display: 34px;
+  --text-display--line-height: 40px;
+  --text-display--font-weight: 600;
+  --text-display--letter-spacing: -0.02em;
+
+  --text-heading: 24px;
+  --text-heading--line-height: 32px;
+  --text-heading--font-weight: 600;
+  --text-heading--letter-spacing: -0.02em;
+
+  --text-subheading: 18px;
+  --text-subheading--line-height: 26px;
+  --text-subheading--font-weight: 600;
+  --text-subheading--letter-spacing: -0.02em;
+
+  --text-base: 15px;
+  --text-base--line-height: 24px;
+  --text-base--font-weight: 400;
+
+  --text-meta: 13px;
+  --text-meta--line-height: 20px;
+  --text-meta--font-weight: 500;
+
+  --shadow-popover: var(--popover-shadow);
+
+  --ease-quiet: cubic-bezier(.2, 0, 0, 1);
+  --default-transition-duration: 140ms;
+  --default-transition-timing-function: var(--ease-quiet);
+}
+
+/* Colours are `inline`: the values are substituted into the utilities, so
+   each one resolves through its CSS variable and follows the active Palette
+   at runtime instead of freezing to a build-time literal. */
+@theme inline {
+  /* DESIGN.md allows fourteen colours, so the default palette is off. */
+  --color-*: initial;
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-soft: var(--surface-soft);
+  --color-border: var(--border);
+  --color-border-soft: var(--border-soft);
+  --color-ink: var(--ink);
+  --color-body: var(--body);
+  --color-mute: var(--mute);
+  --color-accent: var(--accent);
+  --color-accent-press: var(--accent-press);
+  --color-on-accent: var(--on-accent);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-focus-ring: var(--focus-ring);
+}
+
+/* The resolved mode picks the one shadow the system allows. Only a mounted
+   shell has a popover, so these live here rather than on :root. */
+[data-mode="light"] {
+  --popover-shadow: 0 8px 24px rgb(0 0 0 / .10);
+}
+[data-mode="dark"] {
+  --popover-shadow: 0 8px 24px rgb(0 0 0 / .45);
+}
+
+body {
+  background: var(--canvas);
+  color: var(--body);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus is never removed (DESIGN.md §7). */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 36px;
+    padding-inline: 14px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-base);
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      background-color var(--default-transition-duration) var(--ease-quiet),
+      border-color var(--default-transition-duration) var(--ease-quiet),
+      color var(--default-transition-duration) var(--ease-quiet);
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  .btn-primary:hover {
+    background: var(--accent-press);
+  }
+  .btn-secondary {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--ink);
+  }
+  .btn-secondary:hover {
+    background: var(--surface-soft);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--mute);
+  }
+  .btn-ghost:hover {
+    background: var(--surface-soft);
+    color: var(--ink);
+  }
+  .btn:disabled {
+    background: var(--surface-soft);
+    border-color: transparent;
+    color: var(--mute);
+    cursor: default;
+  }
+  .control {
+    height: 36px;
+    max-width: 100%;
+    padding-inline: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: var(--text-base);
+  }
+  @media (pointer: coarse) {
+    .btn,
+    .control {
+      min-height: 44px;
+    }
+  }
+}

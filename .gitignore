@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Build output: the Dashboard build is embedded by the Go package, and the
+# binary itself is produced by `pnpm build` at the repo root.
+apps/api/webdist/*
+!apps/api/webdist/.gitkeep
+apps/api/star-panel
+apps/api/star-panel.exe
+apps/web/dist/
+
+# Local runs
+*.log

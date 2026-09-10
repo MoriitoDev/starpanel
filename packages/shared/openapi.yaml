@@ -1,0 +1,229 @@
+openapi: 3.0.3
+info:
+  title: Star Panel API
+  version: 0.3.0
+paths:
+  /api/v1/health:
+    get:
+      responses:
+        "200":
+          description: alive
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, version]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  version:
+                    type: string
+                    example: v1
+  /api/v1/plugins:
+    get:
+      summary: List discovered plugins (folder drop with validation)
+      responses:
+        "200":
+          description: valid plugins plus rejected folders
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginList"
+  /api/v1/plugins/{name}/modules/{rest}:
+    get:
+      summary: Serve a plugin's frontend ESM files
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+        - name: rest
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: the module file
+          content:
+            text/javascript:
+              schema: { type: string }
+        "404":
+          description: unknown plugin or module file
+  /api/v1/plugins/{name}/proxy/{rest}:
+    get:
+      summary: Forward to the plugin backend subprocess
+      description: Any HTTP method is forwarded. The backend sees paths under /.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+        - name: rest
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: backend response passthrough
+        "404":
+          description: unknown plugin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: backend stopped, crashed, or not declared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/dashboard:
+    get:
+      summary: Get the dashboard document
+      responses:
+        "200":
+          description: current dashboard (default layout when nothing saved yet)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+    put:
+      summary: Save the dashboard document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Dashboard"
+      responses:
+        "200":
+          description: saved dashboard as persisted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+        "400":
+          description: invalid JSON or validation failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  schemas:
+    Widget:
+      type: object
+      required: [id, plugin, size, enabled, pollSeconds]
+      properties:
+        id:
+          type: string
+          example: sample-1
+        plugin:
+          type: string
+          example: sample
+        widget:
+          type: string
+          description: which of the plugin's widgets this entry renders; first when empty
+          example: hello
+        size:
+          type: string
+          enum: [small, medium, large]
+        enabled:
+          type: boolean
+        pollSeconds:
+          type: integer
+          minimum: 1
+          default: 10
+        config:
+          description: free-form per-widget JSON config
+    Theme:
+      type: object
+      required: [mode, light, dark]
+      properties:
+        mode:
+          type: string
+          enum: [light, dark]
+        light:
+          $ref: "#/components/schemas/Palette"
+        dark:
+          $ref: "#/components/schemas/Palette"
+    Palette:
+      type: object
+      required: [background, foreground, accent]
+      properties:
+        background:
+          type: string
+          example: "#14171c"
+        foreground:
+          type: string
+          example: "#e6e9ee"
+        accent:
+          type: string
+          example: "#4f8cff"
+    Dashboard:
+      type: object
+      required: [widgets, theme]
+      properties:
+        widgets:
+          type: array
+          items:
+            $ref: "#/components/schemas/Widget"
+        theme:
+          $ref: "#/components/schemas/Theme"
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    PluginWidgetSpec:
+      type: object
+      required: [id, title, module]
+      properties:
+        id:
+          type: string
+          example: hello
+        title:
+          type: string
+          example: Hello
+        module:
+          type: string
+          description: API URL to import the ESM module from
+          example: /api/v1/plugins/hello-widget/modules/widget.js
+    PluginInfo:
+      type: object
+      required: [name, version, widgets, backend]
+      properties:
+        name:
+          type: string
+          example: hello-widget
+        version:
+          type: string
+          example: 0.1.0
+        widgets:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginWidgetSpec"
+        backend:
+          type: boolean
+          description: whether the manifest declares a backend subprocess
+    PluginError:
+      type: object
+      required: [folder, error]
+      properties:
+        folder:
+          type: string
+        error:
+          type: string
+    PluginList:
+      type: object
+      required: [plugins, errors]
+      properties:
+        plugins:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginInfo"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginError"

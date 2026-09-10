@@ -1,0 +1,55 @@
+{
+  "widgets": [
+    {
+      "id": "echo-echo",
+      "plugin": "echo",
+      "widget": "echo",
+      "size": "medium",
+      "enabled": true,
+      "pollSeconds": 10
+    },
+    {
+      "id": "system-stats-system-stats",
+      "plugin": "system-stats",
+      "widget": "system-stats",
+      "size": "medium",
+      "enabled": true,
+      "pollSeconds": 10
+    }
+  ],
+  "theme": {
+    "mode": "light",
+    "light": {
+      "canvas": "#F7F8F9",
+      "surface": "#FFFFFF",
+      "surfaceSoft": "#F2F3F5",
+      "border": "#E5E7EB",
+      "borderSoft": "#EFF1F3",
+      "ink": "#0D0F12",
+      "body": "#40454D",
+      "mute": "#8B919B",
+      "accent": "#4F6BFF",
+      "accentPress": "#3D57EE",
+      "onAccent": "#FFFFFF",
+      "danger": "#E5484D",
+      "success": "#2E9E68",
+      "focusRing": "rgba(79,107,255,.45)"
+    },
+    "dark": {
+      "canvas": "#0E1012",
+      "surface": "#17191C",
+      "surfaceSoft": "#121417",
+      "border": "#2A2E34",
+      "borderSoft": "#22262B",
+      "ink": "#F3F4F6",
+      "body": "#C7CBD1",
+      "mute": "#878D96",
+      "accent": "#7C8DFF",
+      "accentPress": "#6A7CFF",
+      "onAccent": "#0E1012",
+      "danger": "#FF6369",
+      "success": "#3DD68C",
+      "focusRing": "rgba(124,141,255,.5)"
+    }
+  }
+}

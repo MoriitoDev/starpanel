@@ -1,0 +1,10 @@
+{
+  "name": "echo",
+  "version": "0.1.0",
+  "widgets": [
+    { "id": "echo", "title": "Echo", "module": "widget.js" }
+  ],
+  "backend": {
+    "command": ["node", "backend.mjs"]
+  }
+}
