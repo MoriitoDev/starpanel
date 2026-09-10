@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"star-panel/internal/dashboard"
+	"star-panel/internal/plugins"
 )
 
 func writeFiles(t *testing.T, dir string, files map[string]string) {
@@ -28,14 +31,19 @@ func newTestServerWithPlugins(t *testing.T, filesByFolder map[string]map[string]
 	for folder, files := range filesByFolder {
 		writeFiles(t, filepath.Join(pluginsDir, folder), files)
 	}
-	store, err := NewStore(t.TempDir())
+	store, err := dashboard.NewStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	registry := NewPluginRegistry(pluginsDir)
-	backends := NewBackends(registry, nil)
+	registry := plugins.NewRegistry(pluginsDir)
+	backends := plugins.NewBackends(registry, nil)
 	t.Cleanup(backends.Stop)
-	return httptest.NewServer(newMux(store, registry, backends))
+	return httptest.NewServer(newServer(serverDeps{
+		store:    store,
+		registry: registry,
+		backends: backends,
+		web:      testDashboardFS(),
+	}))
 }
 
 func TestPluginListingShowsValidAndReportsInvalid(t *testing.T) {

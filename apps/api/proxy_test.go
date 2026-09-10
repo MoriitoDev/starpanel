@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"star-panel/internal/dashboard"
+	"star-panel/internal/plugins"
 )
 
 // TestHelperProcess is re-executed as a plugin backend subprocess by the
@@ -50,20 +53,25 @@ func backendManifest(t *testing.T, pluginName string) map[string]string {
 	}
 }
 
-func newBackendTestServer(t *testing.T, filesByFolder map[string]map[string]string) (*httptest.Server, *Backends) {
+func newBackendTestServer(t *testing.T, filesByFolder map[string]map[string]string) (*httptest.Server, *plugins.Backends) {
 	t.Helper()
 	pluginsDir := t.TempDir()
 	for folder, files := range filesByFolder {
 		writeFiles(t, filepath.Join(pluginsDir, folder), files)
 	}
-	store, err := NewStore(t.TempDir())
+	store, err := dashboard.NewStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	registry := NewPluginRegistry(pluginsDir)
-	backends := NewBackends(registry, nil)
+	registry := plugins.NewRegistry(pluginsDir)
+	backends := plugins.NewBackends(registry, nil)
 	t.Cleanup(backends.Stop)
-	ts := httptest.NewServer(newMux(store, registry, backends))
+	ts := httptest.NewServer(newServer(serverDeps{
+		store:    store,
+		registry: registry,
+		backends: backends,
+		web:      testDashboardFS(),
+	}))
 	t.Cleanup(ts.Close)
 	return ts, backends
 }

@@ -1,7 +1,8 @@
-package main
+package plugins
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -30,7 +31,7 @@ var ErrPluginNotFound = errors.New("plugin not found")
 // asks for a handler and never learns which of the two it got — the port, the
 // restart loop and the reverse proxy stay behind this seam.
 type Backends struct {
-	registry *PluginRegistry
+	registry *Registry
 	builtins map[string]http.Handler
 
 	mu    sync.Mutex
@@ -40,7 +41,7 @@ type Backends struct {
 
 // NewBackends takes the built-ins from the composition root: core registers
 // the Plugins it answers itself, so this module never imports one of them.
-func NewBackends(registry *PluginRegistry, builtins map[string]http.Handler) *Backends {
+func NewBackends(registry *Registry, builtins map[string]http.Handler) *Backends {
 	return &Backends{
 		registry: registry,
 		builtins: builtins,
@@ -100,9 +101,18 @@ func (b *Backends) Handler(name string) (http.Handler, error) {
 	target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(port)}
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "plugin backend unavailable: " + err.Error()})
+		writeError(w, http.StatusBadGateway, "plugin backend unavailable: "+err.Error())
 	}
 	return proxy, nil
+}
+
+// writeError answers with the v1 error shape. The transport produces the same
+// shape for its own failures: {"error": "..."} is part of the frozen HTTP
+// interface, and a Widget shows the message when its backend is unavailable.
+func writeError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
 type backendProc struct {

@@ -1,4 +1,4 @@
-package main
+package plugins
 
 import (
 	"encoding/json"
@@ -47,13 +47,13 @@ func LoadManifest(dir string) (Manifest, error) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return Manifest{}, fmt.Errorf("parse manifest: %w", err)
 	}
-	if err := m.Validate(filepath.Base(dir)); err != nil {
+	if err := m.validate(filepath.Base(dir)); err != nil {
 		return Manifest{}, err
 	}
 	return m, nil
 }
 
-func (m *Manifest) Validate(folderName string) error {
+func (m *Manifest) validate(folderName string) error {
 	if m.Name == "" {
 		return errors.New("manifest: name is required")
 	}

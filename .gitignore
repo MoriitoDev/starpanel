@@ -7,6 +7,8 @@ apps/api/webdist/*
 !apps/api/webdist/.gitkeep
 apps/api/star-panel
 apps/api/star-panel.exe
+# Go leaves this behind when the old binary is still running during a rebuild
+apps/api/star-panel.exe~
 apps/web/dist/
 
 # Local runs

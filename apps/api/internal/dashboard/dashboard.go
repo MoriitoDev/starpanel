@@ -1,4 +1,4 @@
-package main
+package dashboard
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const defaultPollSeconds = 10
+const DefaultPollSeconds = 10
 
 // Widget is one entry in the Dashboard's ordered list. Config is free-form
 // per-widget JSON; PollSeconds falls back to DefaultPollSeconds when unset.
@@ -85,7 +85,7 @@ type Theme struct {
 	Dark  Palette `json:"dark"`
 }
 
-func defaultLightPalette() Palette {
+func DefaultLightPalette() Palette {
 	return Palette{
 		Canvas: "#F7F8F9", Surface: "#FFFFFF", SurfaceSoft: "#F2F3F5",
 		Border: "#E5E7EB", BorderSoft: "#EFF1F3", Ink: "#0D0F12",
@@ -95,7 +95,7 @@ func defaultLightPalette() Palette {
 	}
 }
 
-func defaultDarkPalette() Palette {
+func DefaultDarkPalette() Palette {
 	return Palette{
 		Canvas: "#0E1012", Surface: "#17191C", SurfaceSoft: "#121417",
 		Border: "#2A2E34", BorderSoft: "#22262B", Ink: "#F3F4F6",
@@ -110,8 +110,8 @@ func defaultDarkPalette() Palette {
 // and placeholder "sample" widgets become hello-widget instances. It belongs
 // to the store, the only thing that reads documents off disk.
 func (d *Dashboard) migrate() {
-	d.Theme.Light = d.Theme.Light.orDefault(defaultLightPalette())
-	d.Theme.Dark = d.Theme.Dark.orDefault(defaultDarkPalette())
+	d.Theme.Light = d.Theme.Light.orDefault(DefaultLightPalette())
+	d.Theme.Dark = d.Theme.Dark.orDefault(DefaultDarkPalette())
 	for i := range d.Widgets {
 		if d.Widgets[i].Plugin != "sample" {
 			continue
@@ -147,7 +147,7 @@ func DefaultDashboard() Dashboard {
 				Widget:      "system-stats",
 				Size:        "medium",
 				Enabled:     true,
-				PollSeconds: defaultPollSeconds,
+				PollSeconds: DefaultPollSeconds,
 			},
 			{
 				ID:          "hello-1",
@@ -155,7 +155,7 @@ func DefaultDashboard() Dashboard {
 				Widget:      "hello",
 				Size:        "medium",
 				Enabled:     true,
-				PollSeconds: defaultPollSeconds,
+				PollSeconds: DefaultPollSeconds,
 				Config:      json.RawMessage(`{"message":"Hello from your first Plugin!"}`),
 			},
 			{
@@ -164,14 +164,14 @@ func DefaultDashboard() Dashboard {
 				Widget:      "hello",
 				Size:        "small",
 				Enabled:     false,
-				PollSeconds: defaultPollSeconds,
+				PollSeconds: DefaultPollSeconds,
 				Config:      json.RawMessage(`{"message":"Disabled sample — toggle me"}`),
 			},
 		},
 		Theme: Theme{
 			Mode:  "auto",
-			Light: defaultLightPalette(),
-			Dark:  defaultDarkPalette(),
+			Light: DefaultLightPalette(),
+			Dark:  DefaultDarkPalette(),
 		},
 	}
 }
@@ -182,7 +182,7 @@ func DefaultDashboard() Dashboard {
 func (d *Dashboard) normalize() {
 	for i := range d.Widgets {
 		if d.Widgets[i].PollSeconds <= 0 {
-			d.Widgets[i].PollSeconds = defaultPollSeconds
+			d.Widgets[i].PollSeconds = DefaultPollSeconds
 		}
 	}
 }

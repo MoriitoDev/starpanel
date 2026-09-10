@@ -5,23 +5,31 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+
+	"star-panel/internal/dashboard"
+	"star-panel/internal/plugins"
 )
 
-func newBuiltinTestServer(t *testing.T, builtins map[string]http.Handler) (*httptest.Server, *PluginRegistry) {
+func newBuiltinTestServer(t *testing.T, builtins map[string]http.Handler) (*httptest.Server, *plugins.Registry) {
 	t.Helper()
 	pluginsDir := t.TempDir()
 	writeFiles(t, filepath.Join(pluginsDir, "system-stats"), map[string]string{
 		"manifest.json": `{"name":"system-stats","version":"0.1.0","widgets":[{"id":"system-stats","title":"System Stats","module":"widget.js"}]}`,
 		"widget.js":     "export default () => {};",
 	})
-	store, err := NewStore(t.TempDir())
+	store, err := dashboard.NewStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	registry := NewPluginRegistry(pluginsDir)
-	backends := NewBackends(registry, builtins)
+	registry := plugins.NewRegistry(pluginsDir)
+	backends := plugins.NewBackends(registry, builtins)
 	t.Cleanup(backends.Stop)
-	ts := httptest.NewServer(newMux(store, registry, backends))
+	ts := httptest.NewServer(newServer(serverDeps{
+		store:    store,
+		registry: registry,
+		backends: backends,
+		web:      testDashboardFS(),
+	}))
 	t.Cleanup(ts.Close)
 	return ts, registry
 }
