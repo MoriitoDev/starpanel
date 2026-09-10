@@ -11,3 +11,10 @@ apps/web/dist/
 
 # Local runs
 *.log
+
+# Local state: the Dashboard document is created at runtime, never shipped.
+# A fresh clone starts from the seeded default Dashboard instead.
+apps/api/data/
+
+# Tool output
+.openchamber/screenshots/
