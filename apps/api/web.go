@@ -67,7 +67,9 @@ func serveShell(w http.ResponseWriter, root fs.FS, themeHref func() string) {
 		return
 	}
 	if href := themeHref(); href != "" {
-		link := `<link rel="stylesheet" href="` + href + `">`
+		// data-theme is how the app finds the link again to swap it in place.
+		link := `<link rel="stylesheet" data-theme="` + strings.TrimSuffix(path.Base(href), ".css") +
+			`" href="` + href + `">`
 		index = bytes.Replace(index, []byte("</head>"), []byte(link+"</head>"), 1)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

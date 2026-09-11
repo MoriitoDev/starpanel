@@ -1,10 +1,25 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchDashboard, fetchPlugins, saveDashboard } from "./api";
+  import {
+    deleteTheme,
+    fetchDashboard,
+    fetchPlugins,
+    fetchThemes,
+    importTheme,
+    saveDashboard,
+    themeHref
+  } from "./api";
   import StarMark from "./lib/StarMark.svelte";
   import StatusDot from "./lib/StatusDot.svelte";
   import WidgetCard from "./WidgetCard.svelte";
-  import type { Dashboard, PluginError, PluginInfo, Widget, WidgetSize } from "./types";
+  import type {
+    Dashboard,
+    PluginError,
+    PluginInfo,
+    ThemeInfo,
+    Widget,
+    WidgetSize
+  } from "./types";
 
   type Health = "checking" | "alive" | "degraded" | "offline";
   type SaveState = "saved" | "saving" | "error";
@@ -20,6 +35,84 @@
   let saveError = $state<string | null>(null);
   let addSelection = $state("");
   let editing = $state(false);
+  // The default is always on offer, even before the first listing arrives.
+  let themes = $state<ThemeInfo[]>([{ name: "Default", slug: "default", present: true }]);
+  let themeError = $state<string | null>(null);
+  let themeNotice = $state<string | null>(null);
+  let fileInput = $state<HTMLInputElement>();
+
+  let activeTheme = $derived(dashboard?.theme ?? "default");
+  let activeThemeName = $derived(
+    themes.find((theme) => theme.slug === activeTheme)?.name ?? activeTheme
+  );
+  let activeThemeIsImported = $derived(activeTheme !== "default");
+
+  // A page load arrives with the active Theme already linked, because the
+  // server writes the <link> into the shell it serves. Whatever changes it
+  // afterwards — this panel, another tab, a hand-edited document — the link in
+  // the head follows, and this is a no-op when it is already right.
+  function applyTheme(slug: string): void {
+    const link = document.head.querySelector<HTMLLinkElement>("link[data-theme]");
+    if (slug === "default") {
+      link?.remove();
+      return;
+    }
+    const href = themeHref(slug);
+    if (link) {
+      if (link.getAttribute("href") !== href) link.setAttribute("href", href);
+      return;
+    }
+    const fresh = document.createElement("link");
+    fresh.rel = "stylesheet";
+    fresh.setAttribute("data-theme", slug);
+    fresh.href = href;
+    document.head.append(fresh);
+  }
+
+  $effect(() => {
+    applyTheme(activeTheme);
+  });
+
+  async function refreshThemes(): Promise<void> {
+    try {
+      themes = (await fetchThemes()).themes;
+    } catch {
+      // Keep the last listing: the panel still renders with the Theme it has.
+    }
+  }
+
+  function chooseTheme(slug: string): void {
+    if (!dashboard || slug === activeTheme) return;
+    void persist({ ...dashboard, theme: slug });
+  }
+
+  async function importThemeFile(file: File): Promise<void> {
+    themeError = null;
+    themeNotice = null;
+    try {
+      const imported = await importTheme(await file.text());
+      themeNotice = `${imported.name} imported.`;
+      await refreshThemes();
+    } catch (err) {
+      themeError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function removeTheme(theme: ThemeInfo): Promise<void> {
+    if (!dashboard) return;
+    if (!window.confirm(`Delete the theme "${theme.name}"? Its file goes with it.`)) return;
+    themeError = null;
+    themeNotice = null;
+    try {
+      await deleteTheme(theme.slug);
+      // Deleting the active Theme is allowed; the panel returns to its default.
+      const next = activeTheme === theme.slug ? { ...dashboard, theme: "default" } : dashboard;
+      await persist(next);
+      await refreshThemes();
+    } catch (err) {
+      themeError = err instanceof Error ? err.message : String(err);
+    }
+  }
 
   function pluginFor(widget: Widget): PluginInfo | null {
     return plugins.find((p) => p.name === widget.plugin) ?? null;
@@ -156,6 +249,7 @@
         health = "offline";
       }
       await refreshPlugins();
+      await refreshThemes();
     })();
 
     // 10s REST poll, the widget default from the spec. Also picks up
@@ -166,6 +260,7 @@
         .then((fresh) => (dashboard = fresh))
         .catch(() => {});
       void refreshPlugins();
+      void refreshThemes();
     }, DASHBOARD_POLL_SECONDS * 1000);
 
     return () => {
@@ -177,7 +272,7 @@
 <div class="min-h-dvh bg-canvas font-sans text-body">
   <div class="mx-auto flex max-w-[1200px] flex-col px-4 py-6 sm:px-6">
     {#if dashboard}
-      <div class="flex items-center justify-between gap-4">
+      <div class="flex items-center justify-between gap-4" data-part="header">
         <StatusDot
           health={health}
           save={saveState}
@@ -185,6 +280,18 @@
           pollSeconds={DASHBOARD_POLL_SECONDS}
         />
         <div class="flex items-center gap-2">
+          <select
+            class="h-7 rounded-pill bg-surface-soft px-3 text-meta text-ink"
+            value={activeTheme}
+            onchange={(event) => chooseTheme(event.currentTarget.value)}
+            aria-label="Theme"
+          >
+            {#each themes as theme (theme.slug)}
+              <option value={theme.slug}>
+                {theme.name}{theme.present ? "" : " (file missing)"}
+              </option>
+            {/each}
+          </select>
           <button
             type="button"
             class={editing ? "btn btn-primary" : "btn btn-secondary"}
@@ -196,7 +303,7 @@
       </div>
     {/if}
 
-    <header class="flex items-center justify-center gap-3 py-10">
+    <header class="flex items-center justify-center gap-3 py-10" data-part="identity">
       <StarMark class="h-8 w-8 text-accent" />
       <h1 class="text-display text-ink">Star Panel</h1>
     </header>
@@ -228,8 +335,80 @@
           </div>
         {/if}
 
+        {#if editing}
+          <section
+            class="rounded-md border border-border bg-surface p-5"
+            aria-labelledby="themes-heading"
+          >
+            <h2 id="themes-heading" class="text-subheading text-ink">Themes</h2>
+            <p class="mt-1 text-meta text-mute">
+              A Theme is a stylesheet. The default ships with the panel; the rest are CSS
+              files in <span class="font-mono">themes/</span>.
+            </p>
+
+            <div class="mt-4 flex flex-wrap items-center gap-2">
+              <input
+                bind:this={fileInput}
+                class="hidden"
+                type="file"
+                accept=".css,text/css"
+                onchange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  if (file) void importThemeFile(file);
+                  event.currentTarget.value = "";
+                }}
+              />
+              <button type="button" class="btn btn-secondary" onclick={() => fileInput?.click()}>
+                Import a Theme…
+              </button>
+              {#if activeThemeIsImported}
+                <a
+                  class="btn btn-secondary"
+                  href={themeHref(activeTheme)}
+                  download={`${activeTheme}.css`}>Download {activeThemeName}</a
+                >
+              {:else}
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  disabled
+                  title="The default Theme is not a file, so there is nothing to download"
+                  >Download</button
+                >
+              {/if}
+            </div>
+
+            {#if themeNotice}
+              <p class="mt-3 text-meta text-mute">{themeNotice}</p>
+            {/if}
+            {#if themeError}
+              <p class="mt-3 text-meta text-danger" data-part="error">{themeError}</p>
+            {/if}
+
+            {#if themes.length > 1}
+              <ul class="mt-4 space-y-1">
+                {#each themes as theme (theme.slug)}
+                  {#if theme.slug !== "default"}
+                    <li class="flex items-center justify-between gap-3 text-base text-body">
+                      <span>
+                        {theme.name}{theme.present ? "" : " (its file is gone)"}
+                      </span>
+                      <button
+                        type="button"
+                        class="btn btn-ghost px-2 text-meta"
+                        aria-label="Delete {theme.name}"
+                        onclick={() => removeTheme(theme)}>Delete</button
+                      >
+                    </li>
+                  {/if}
+                {/each}
+              </ul>
+            {/if}
+          </section>
+        {/if}
+
         {#if dashboard.widgets.length === 0}
-          <div class="py-14 text-center">
+          <div class="py-14 text-center" data-part="empty">
             <p class="text-display text-ink">No widgets yet</p>
             <p class="mt-2 text-base text-body">
               {editing ? "Pick one above to add it." : "Enter edit mode to add one."}
@@ -242,6 +421,7 @@
                 <section
                   class="flex h-full flex-col rounded-md border border-border bg-surface p-5"
                   aria-labelledby={`widget-${w.id}`}
+                  data-part="card"
                 >
                   <div class="flex items-start justify-between gap-3">
                     <h2 id={`widget-${w.id}`} class="text-subheading text-ink">{titleFor(w)}</h2>
@@ -309,6 +489,7 @@
           <section
             class="rounded-md border border-danger bg-surface p-5"
             aria-labelledby="save-error"
+            data-part="error"
           >
             <h2 id="save-error" class="text-subheading text-ink">Could not save the Dashboard</h2>
             <p class="mt-1 text-base text-body">
@@ -321,6 +502,7 @@
           <section
             class="rounded-md border border-danger bg-surface p-5"
             aria-labelledby="plugin-errors"
+            data-part="error"
           >
             <h2 id="plugin-errors" class="text-subheading text-ink">
               Rejected plugin folders

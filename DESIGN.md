@@ -98,11 +98,11 @@ The default scale, used from this set only: 4, 8, 12, 16, 20, 24, 32, 48, 64. Ca
 
 **Status dot.** An 8px circle: `success` when the API answers, `danger` when it does not, `mute` while checking. Hover or keyboard focus reveals a popover (`surface`, `radius-lg`, the one shadow) with the API state, the save state and the poll interval. The dot has an accessible name and the detail is reachable without a pointer.
 
-**Theme control.** The active Theme's name on a `surface-soft` `radius-pill`, opening the list of themes the panel knows: the default first, then every stylesheet in `themes/`. Picking one persists its name in the Dashboard. Importing, deleting and downloading belong to edit mode, not here.
+**Theme control.** A compact select on a `surface-soft` `radius-pill`, showing the active Theme's name and opening the list: the default first, then every stylesheet in `themes/`, with a file-missing note for one whose file has gone. Picking one persists its name in the Dashboard and swaps the stylesheet link in place, so nothing reloads. Importing, deleting and downloading belong to edit mode, not here.
 
 **Card.** `surface`, 1px `border`, `radius-md`, 20px padding, 16px between the title block and the body. Title in `subheading`/`ink`, metadata in `meta`/`mute`. In view mode a card shows a title, its body and at most one muted metadata line. Nothing else.
 
-**Edit mode.** Toggled from the header, where `Edit` becomes a filled `Done`. Edit mode adds to each card a control cluster at the top end (remove), an `enabled` switch, and move controls at the bottom end; it also reveals the add-widget select, which is hidden while viewing. Each change persists as it is made, as today.
+**Edit mode.** Toggled from the header, where `Edit` becomes a filled `Done`. Edit mode adds to each card a control cluster at the top end (remove), an `enabled` switch, and move controls at the bottom end; it also reveals the add-widget select and a Themes section that imports, deletes with a confirmation and downloads the active Theme. Each change persists as it is made, as today.
 
 **Buttons.** Primary: `accent` background, `on-accent` text, `radius-sm`, 36px tall, 14px horizontal padding, weight 500, `accent-press` while pressed. Secondary: `surface` + 1px `border` + `ink`. Ghost: transparent + `mute`, no border. Disabled per the Rules.
 

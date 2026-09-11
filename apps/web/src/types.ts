@@ -41,6 +41,19 @@ export interface PluginList {
   errors: PluginError[];
 }
 
+/** One Theme the panel knows: the default, or a stylesheet in themes/. */
+export interface ThemeInfo {
+  name: string;
+  slug: string;
+  /** False when an active Theme's file has gone missing from the folder. */
+  present: boolean;
+}
+
+export interface ThemeList {
+  active: string;
+  themes: ThemeInfo[];
+}
+
 /** Context handed to a widget module's default export. */
 export interface WidgetContext {
   config: Record<string, unknown>;
