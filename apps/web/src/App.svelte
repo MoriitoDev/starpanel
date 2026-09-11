@@ -280,18 +280,20 @@
           pollSeconds={DASHBOARD_POLL_SECONDS}
         />
         <div class="flex items-center gap-2">
-          <select
-            class="h-7 rounded-pill bg-surface-soft px-3 text-meta text-ink"
-            value={activeTheme}
-            onchange={(event) => chooseTheme(event.currentTarget.value)}
-            aria-label="Theme"
-          >
-            {#each themes as theme (theme.slug)}
-              <option value={theme.slug}>
-                {theme.name}{theme.present ? "" : " (file missing)"}
-              </option>
-            {/each}
-          </select>
+          {#if editing}
+            <select
+              class="h-7 rounded-pill bg-surface-soft px-3 text-meta text-ink"
+              value={activeTheme}
+              onchange={(event) => chooseTheme(event.currentTarget.value)}
+              aria-label="Theme"
+            >
+              {#each themes as theme (theme.slug)}
+                <option value={theme.slug}>
+                  {theme.name}{theme.present ? "" : " (file missing)"}
+                </option>
+              {/each}
+            </select>
+          {/if}
           <button
             type="button"
             class={editing ? "btn btn-primary" : "btn btn-secondary"}
