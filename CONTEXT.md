@@ -21,12 +21,12 @@ A plugin's declared name, version, widgets, and backend contract.
 _Avoid_: config, descriptor
 
 **Theme**:
-The Dashboard's stored colors: the active mode plus one value per color Token for each Palette.
-_Avoid_: skin, style, custom CSS, color scheme
+A named stylesheet the owner imports to repaint the Dashboard's visuals; the default Theme ships inside the binary.
+_Avoid_: skin, style, color scheme, mode
 
 **Palette**:
-The Token values that render while one mode (light or dark) is active.
-_Avoid_: color set, scheme, theme (a Palette is part of a Theme, never the whole)
+The fourteen baseline Token values the default Theme ships, which an imported Theme overrides as it likes.
+_Avoid_: color set, scheme, theme (a Palette is what a Theme paints with, never the whole)
 
 **Token**:
 A named design value — a color, a radius, a type step — that both the Dashboard chrome and Plugin widgets style with.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"embed"
 	"io/fs"
 	"net/http"
@@ -25,7 +26,11 @@ func dashboardFS() (fs.FS, error) {
 // under /api/ reaching this handler matched no route and stays JSON, and a
 // path that looks like an asset never answers with the shell — the browser
 // would try to parse HTML as a module and report something unrelated.
-func webHandler(root fs.FS) http.Handler {
+//
+// themeHref is asked for the active Theme's stylesheet just before the shell
+// goes out, so the browser starts fetching it in parallel with the app rather
+// than the panel painting the baseline and flipping a moment later.
+func webHandler(root fs.FS, themeHref func() string) http.Handler {
 	files := http.FileServerFS(root)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -34,12 +39,12 @@ func webHandler(root fs.FS) http.Handler {
 		}
 		rel := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 		if rel == "" || rel == "." {
-			serveShell(w, r, root)
+			serveShell(w, root, themeHref)
 			return
 		}
 		if _, err := fs.Stat(root, rel); err != nil {
 			if path.Ext(rel) == "" {
-				serveShell(w, r, root)
+				serveShell(w, root, themeHref)
 				return
 			}
 			http.NotFound(w, r)
@@ -51,8 +56,9 @@ func webHandler(root fs.FS) http.Handler {
 
 // serveShell answers with index.html, or says plainly that this binary was
 // built without a Dashboard.
-func serveShell(w http.ResponseWriter, r *http.Request, root fs.FS) {
-	if _, err := fs.Stat(root, "index.html"); err != nil {
+func serveShell(w http.ResponseWriter, root fs.FS, themeHref func() string) {
+	index, err := fs.ReadFile(root, "index.html")
+	if err != nil {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte(
@@ -60,5 +66,10 @@ func serveShell(w http.ResponseWriter, r *http.Request, root fs.FS) {
 		))
 		return
 	}
-	http.ServeFileFS(w, r, root, "index.html")
+	if href := themeHref(); href != "" {
+		link := `<link rel="stylesheet" href="` + href + `">`
+		index = bytes.Replace(index, []byte("</head>"), []byte(link+"</head>"), 1)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(index)
 }

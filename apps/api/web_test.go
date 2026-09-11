@@ -14,7 +14,10 @@ import (
 // handler with their own filesystem instead of the compiled-in one.
 func testDashboardFS() fstest.MapFS {
 	return fstest.MapFS{
-		"index.html":    {Data: []byte("<!doctype html><title>Star Panel</title>")},
+		"index.html": {Data: []byte(
+			`<!doctype html><html><head><title>Star Panel</title></head>` +
+				`<body><div id="app"></div></body></html>`,
+		)},
 		"assets/app.js": {Data: []byte("console.log('panel')")},
 		"favicon.svg":   {Data: []byte("<svg/>")},
 	}
@@ -23,9 +26,12 @@ func testDashboardFS() fstest.MapFS {
 func getFromWeb(t *testing.T, root fs.FS, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	webHandler(root).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	webHandler(root, noTheme).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	return rec
 }
+
+// noTheme is the shell's view of a Dashboard that renders with the baseline.
+func noTheme() string { return "" }
 
 func TestWebHandlerServesTheShellAtTheRoot(t *testing.T) {
 	res := getFromWeb(t, testDashboardFS(), "/")

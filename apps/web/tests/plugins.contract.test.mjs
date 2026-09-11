@@ -46,7 +46,6 @@ test("widget module renders with stub element and context", async () => {
   const el = stubElement();
   const result = mod.default(el, {
     config: { message: "Hi from the contract test" },
-    theme: { primary: "#f7a501", ink: "#23251d", canvas: "#eeefe9" },
     pollSeconds: 10,
     fetch: async () => {
       throw new Error("no backend");
@@ -78,7 +77,6 @@ test("widget config falls back without a message", async () => {
   const el = stubElement();
   const cleanup = mod.default(el, {
     config: {},
-    theme: { primary: "#f7a501", ink: "#23251d", canvas: "#eeefe9" },
     pollSeconds: 5,
     fetch: async () => {
       throw new Error("no backend");

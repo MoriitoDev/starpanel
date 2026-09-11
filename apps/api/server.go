@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 
 	"star-panel/internal/dashboard"
 	"star-panel/internal/plugins"
+	"star-panel/internal/themes"
 )
 
 // serverDeps is everything the HTTP surface needs. A struct rather than
@@ -21,6 +23,7 @@ type serverDeps struct {
 	store    *dashboard.Store
 	registry *plugins.Registry
 	backends *plugins.Backends
+	themes   *themes.Store
 	web      fs.FS
 }
 
@@ -35,8 +38,144 @@ func newServer(deps serverDeps) http.Handler {
 	mux.HandleFunc("GET /api/v1/plugins", listPluginsHandler(deps.registry))
 	mux.HandleFunc("GET /api/v1/plugins/{name}/modules/{rest...}", pluginModuleHandler(deps.registry))
 	mux.HandleFunc("/api/v1/plugins/{name}/proxy/{rest...}", proxyHandler(deps.backends))
-	mux.Handle("/", webHandler(deps.web))
+	mux.HandleFunc("GET /api/v1/themes", listThemesHandler(deps))
+	mux.HandleFunc("POST /api/v1/themes", importThemeHandler(deps.themes))
+	mux.HandleFunc("DELETE /api/v1/themes/{slug}", deleteThemeHandler(deps.themes))
+	mux.HandleFunc("GET /api/v1/themes/{slug}", serveThemeHandler(deps.themes))
+	mux.Handle("/", webHandler(deps.web, activeThemeHref(deps)))
 	return mux
+}
+
+// maxThemeBytes caps an import. There is nothing to validate inside a
+// stylesheet — whatever the author wants is the author's business — but a
+// panel that reads a request body should know how much it will hold.
+const maxThemeBytes = 1 << 20
+
+// ThemeInfo is one row of the theme listing: what to call it, what to ask for
+// it by, and whether its file is really there.
+type ThemeInfo struct {
+	Name    string `json:"name"`
+	Slug    string `json:"slug"`
+	Present bool   `json:"present"`
+}
+
+type ThemeList struct {
+	Active string      `json:"active"`
+	Themes []ThemeInfo `json:"themes"`
+}
+
+// activeThemeName reads the Dashboard's choice. A document that cannot be read
+// falls back to the baseline: the theme listing is not the place to report a
+// broken document, and the panel still has to paint something.
+func activeThemeName(deps serverDeps) string {
+	document, err := deps.store.Load()
+	if err != nil || document.Theme == "" {
+		return dashboard.DefaultTheme
+	}
+	return string(document.Theme)
+}
+
+// activeThemeHref is the stylesheet the shell should link, or "" when the
+// Dashboard renders with the baseline. A name with no file behind it is not an
+// error to shout about here — the theme list is where that shows — but it must
+// never produce a link to nothing.
+func activeThemeHref(deps serverDeps) func() string {
+	return func() string {
+		slug := activeThemeName(deps)
+		if slug == dashboard.DefaultTheme {
+			return ""
+		}
+		if _, ok := deps.themes.Find(slug); !ok {
+			return ""
+		}
+		return "/api/v1/themes/" + url.PathEscape(slug) + ".css"
+	}
+}
+
+func listThemesHandler(deps serverDeps) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		active := activeThemeName(deps)
+		list := ThemeList{
+			Active: active,
+			Themes: []ThemeInfo{{Name: "Default", Slug: dashboard.DefaultTheme, Present: true}},
+		}
+		for _, theme := range deps.themes.List() {
+			list.Themes = append(list.Themes, ThemeInfo{
+				Name:    theme.Name,
+				Slug:    theme.Slug,
+				Present: true,
+			})
+		}
+		present := false
+		for _, theme := range list.Themes {
+			if theme.Slug == active {
+				present = true
+			}
+		}
+		if !present {
+			// The owner needs to know their Theme is gone rather than find it
+			// quietly dropped from the list.
+			list.Themes = append(list.Themes, ThemeInfo{Name: active, Slug: active, Present: false})
+		}
+		writeJSON(w, http.StatusOK, list)
+	}
+}
+
+func importThemeHandler(store *themes.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		css, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxThemeBytes))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the theme is too large to import"})
+			return
+		}
+		imported, err := store.Add(css)
+		switch {
+		case errors.Is(err, themes.ErrExists):
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": "a theme called " + imported.Name + " is already imported; rename this one or delete that one first",
+			})
+		case err != nil:
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		default:
+			writeJSON(w, http.StatusCreated, imported)
+		}
+	}
+}
+
+func deleteThemeHandler(store *themes.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		slug := r.PathValue("slug")
+		if slug == dashboard.DefaultTheme {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "the default theme is not a file, so there is nothing to delete",
+			})
+			return
+		}
+		switch err := store.Delete(slug); {
+		case errors.Is(err, themes.ErrNotFound):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "theme not found: " + slug})
+		case err != nil:
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}
+}
+
+// serveThemeHandler answers the URL the shell links and the download button
+// points at. The slug arrives straight from a URL, so the store only resolves
+// it against files it found itself.
+func serveThemeHandler(store *themes.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		slug := strings.TrimSuffix(r.PathValue("slug"), ".css")
+		css, ok := store.Read(slug)
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "theme not found: " + slug})
+			return
+		}
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		_, _ = w.Write(css)
+	}
 }
 
 func healthHandler(w http.ResponseWriter, _ *http.Request) {

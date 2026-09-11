@@ -1,9 +1,9 @@
 /* Star Panel design tokens.
 
    The single source of every value in DESIGN.md: utilities and components
-   reference tokens by name, never literals (ADR-0004). Light is the default
-   palette so the shell renders before the Dashboard loads; App.svelte then
-   overrides these variables inline with the active Palette. */
+   reference tokens by name, never literals (ADR-0004). This is also the
+   default Theme — the baseline an imported Theme lays itself over — which is
+   why it stays in the binary and is always available. */
 
 /* Sources are explicit because this project ships no .gitignore: automatic
    detection would also scan dist/ and feed the built CSS back into itself,
@@ -36,27 +36,11 @@
   --danger: #e5484d;
   --success: #2e9e68;
   --focus-ring: rgba(79, 107, 255, .45);
-}
+  --popover-shadow: 0 8px 24px rgb(0 0 0 / .10);
 
-/* Before the Dashboard loads there is no Palette to inject, so the shell
-   follows the system preference instead of flashing light on a dark OS. */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --canvas: #0e1012;
-    --surface: #17191c;
-    --surface-soft: #121417;
-    --border: #2a2e34;
-    --border-soft: #22262b;
-    --ink: #f3f4f6;
-    --body: #c7cbd1;
-    --mute: #878d96;
-    --accent: #7c8dff;
-    --accent-press: #6a7cff;
-    --on-accent: #0e1012;
-    --danger: #ff6369;
-    --success: #3dd68c;
-    --focus-ring: rgba(124, 141, 255, .5);
-  }
+  /* The one shadow the system allows, and the hint native controls use. A
+     Theme that wants a dark look overrides both. */
+  color-scheme: light;
 }
 
 /* `static` keeps these emitted as real CSS variables whether or not a utility
@@ -122,15 +106,6 @@
   --color-danger: var(--danger);
   --color-success: var(--success);
   --color-focus-ring: var(--focus-ring);
-}
-
-/* The resolved mode picks the one shadow the system allows. Only a mounted
-   shell has a popover, so these live here rather than on :root. */
-[data-mode="light"] {
-  --popover-shadow: 0 8px 24px rgb(0 0 0 / .10);
-}
-[data-mode="dark"] {
-  --popover-shadow: 0 8px 24px rgb(0 0 0 / .45);
 }
 
 body {

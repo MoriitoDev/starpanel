@@ -42,6 +42,7 @@ func newTestServerWithPlugins(t *testing.T, filesByFolder map[string]map[string]
 		store:    store,
 		registry: registry,
 		backends: backends,
+		themes:   newThemeStore(t),
 		web:      testDashboardFS(),
 	}))
 }

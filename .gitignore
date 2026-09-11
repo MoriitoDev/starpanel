@@ -17,6 +17,8 @@ apps/web/dist/
 # Local state: the Dashboard document is created at runtime, never shipped.
 # A fresh clone starts from the seeded default Dashboard instead.
 apps/api/data/
+# Imported Themes are the owner's, not the repository's.
+apps/api/themes/
 
 # Tool output
 .openchamber/screenshots/

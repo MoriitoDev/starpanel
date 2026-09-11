@@ -13,11 +13,11 @@ export default function render(el, ctx) {
 }
 ```
 
-`ctx` carries `config` (free-form JSON from the Dashboard), `theme` (the active Palette as data), `pollSeconds`, and `fetch`, which targets this Plugin's `/proxy/` path (backend Plugins only). Return a cleanup function to release timers and listeners.
+`ctx` carries `config` (free-form JSON from the Dashboard), `pollSeconds`, and `fetch`, which targets this Plugin's `/proxy/` path (backend Plugins only). Return a cleanup function to release timers and listeners.
 
 ## Styling: the Token contract
 
-Widgets are loaded at runtime, so Tailwind's build-time scanner never sees them and **utility classes do not work**. The Dashboard instead sets the design Tokens as CSS variables on the shell around every card, so a Widget styles itself against the same values as the chrome and follows light, dark and auto for free.
+Widgets are loaded at runtime, so Tailwind's build-time scanner never sees them and **utility classes do not work**. The Dashboard instead sets the design Tokens as CSS variables on the shell around every card, so a Widget styles itself against the same values as the chrome and follows whatever Theme the owner has imported for free.
 
 | Group | Variables |
 | --- | --- |
@@ -33,7 +33,7 @@ value.style.cssText =
 
 ### Rules
 
-- **Never a literal colour.** Every colour comes from a variable; that is what keeps a Widget readable when the owner switches between light, dark and auto.
+- **Never a literal colour.** Every colour comes from a variable; that is what keeps a Widget readable under a Theme we have never seen.
 - **At most one accent per Widget.** `--success` and `--danger` report state, `--accent` is for the one thing that leads or acts.
 - **No shadows, no gradients, no second accent.** The system allows exactly one shadow, on popovers, and a Widget is not a popover.
 - **Numbers use tabular figures:** `font-variant-numeric: tabular-nums`.

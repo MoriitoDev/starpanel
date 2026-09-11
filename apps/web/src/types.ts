@@ -11,34 +11,10 @@ export interface Widget {
   config?: Record<string, unknown>;
 }
 
-/** One mode's set of CSS variables: the fourteen DESIGN.md tokens. */
-export interface Palette {
-  canvas: string;
-  surface: string;
-  surfaceSoft: string;
-  border: string;
-  borderSoft: string;
-  ink: string;
-  body: string;
-  mute: string;
-  accent: string;
-  accentPress: string;
-  onAccent: string;
-  danger: string;
-  success: string;
-  focusRing: string;
-}
-
-export interface Theme {
-  /** "auto" follows the operating system; light and dark are explicit. */
-  mode: "light" | "dark" | "auto";
-  light: Palette;
-  dark: Palette;
-}
-
 export interface Dashboard {
   widgets: Widget[];
-  theme: Theme;
+  /** The name of the imported Theme to render with; "default" is the baseline. */
+  theme: string;
 }
 
 export interface PluginWidgetSpec {
@@ -68,7 +44,6 @@ export interface PluginList {
 /** Context handed to a widget module's default export. */
 export interface WidgetContext {
   config: Record<string, unknown>;
-  theme: Palette;
   pollSeconds: number;
   fetch: (path: string) => Promise<Response>;
 }

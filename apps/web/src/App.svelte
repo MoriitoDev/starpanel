@@ -1,19 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { fetchDashboard, fetchPlugins, saveDashboard } from "./api";
-  import ModeControl from "./lib/ModeControl.svelte";
   import StarMark from "./lib/StarMark.svelte";
   import StatusDot from "./lib/StatusDot.svelte";
   import WidgetCard from "./WidgetCard.svelte";
-  import type {
-    Dashboard,
-    Palette,
-    PluginError,
-    PluginInfo,
-    Theme,
-    Widget,
-    WidgetSize
-  } from "./types";
+  import type { Dashboard, PluginError, PluginInfo, Widget, WidgetSize } from "./types";
 
   type Health = "checking" | "alive" | "degraded" | "offline";
   type SaveState = "saved" | "saving" | "error";
@@ -29,37 +20,6 @@
   let saveError = $state<string | null>(null);
   let addSelection = $state("");
   let editing = $state(false);
-  let systemDark = $state(false);
-
-  let mode = $derived<Theme["mode"]>(dashboard?.theme.mode ?? "auto");
-  // "auto" is resolved here rather than in CSS so the shell can hand the
-  // active Palette to Plugin widgets as data, not only as variables.
-  let resolvedMode = $derived(mode === "auto" ? (systemDark ? "dark" : "light") : mode);
-  let palette = $derived<Palette | null>(
-    dashboard ? (resolvedMode === "dark" ? dashboard.theme.dark : dashboard.theme.light) : null
-  );
-
-  // cssVars exposes the active design Palette as kebab-case CSS variables on
-  // the shell, so every rule in app.css reads tokens, never literal colors.
-  function cssVars(p: Palette): string {
-    const entries: Array<[string, keyof Palette]> = [
-      ["canvas", "canvas"],
-      ["surface", "surface"],
-      ["surface-soft", "surfaceSoft"],
-      ["border", "border"],
-      ["border-soft", "borderSoft"],
-      ["ink", "ink"],
-      ["body", "body"],
-      ["mute", "mute"],
-      ["accent", "accent"],
-      ["accent-press", "accentPress"],
-      ["on-accent", "onAccent"],
-      ["danger", "danger"],
-      ["success", "success"],
-      ["focus-ring", "focusRing"]
-    ];
-    return entries.map(([name, key]) => `--${name}:${p[key]}`).join(";");
-  }
 
   function pluginFor(widget: Widget): PluginInfo | null {
     return plugins.find((p) => p.name === widget.plugin) ?? null;
@@ -170,11 +130,6 @@
     void persist({ ...dashboard, widgets });
   }
 
-  function setMode(mode: Theme["mode"]): void {
-    if (!dashboard) return;
-    void persist({ ...dashboard, theme: { ...dashboard.theme, mode } });
-  }
-
   async function refreshPlugins(): Promise<void> {
     try {
       const list = await fetchPlugins();
@@ -186,13 +141,6 @@
   }
 
   onMount(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    systemDark = media.matches;
-    const onMediaChange = (event: MediaQueryListEvent) => {
-      systemDark = event.matches;
-    };
-    media.addEventListener("change", onMediaChange);
-
     void (async () => {
       try {
         const res = await fetch("/api/v1/health");
@@ -221,23 +169,12 @@
     }, DASHBOARD_POLL_SECONDS * 1000);
 
     return () => {
-      media.removeEventListener("change", onMediaChange);
       clearInterval(timer);
     };
   });
-
-  // The native controls inside the shell — the select menu, the checkbox —
-  // should follow the resolved mode, not the operating system.
-  $effect(() => {
-    document.documentElement.style.colorScheme = resolvedMode;
-  });
 </script>
 
-<div
-  class="min-h-dvh bg-canvas font-sans text-body"
-  data-mode={resolvedMode}
-  style={palette ? cssVars(palette) : undefined}
->
+<div class="min-h-dvh bg-canvas font-sans text-body">
   <div class="mx-auto flex max-w-[1200px] flex-col px-4 py-6 sm:px-6">
     {#if dashboard}
       <div class="flex items-center justify-between gap-4">
@@ -255,7 +192,6 @@
             onclick={() => (editing = !editing)}
             >{editing ? "Done" : "Edit"}</button
           >
-          <ModeControl mode={mode} onchange={setMode} />
         </div>
       </div>
     {/if}
@@ -266,7 +202,7 @@
     </header>
 
     <main class="flex flex-col gap-8">
-      {#if !dashboard || !palette}
+      {#if !dashboard}
         <p class="text-center text-meta text-mute">
           {health === "offline"
             ? "Waiting for the API on :8080…"
@@ -334,7 +270,7 @@
                     {#if !w.enabled}
                       <p class="text-meta text-mute">Disabled</p>
                     {:else if pluginFor(w)}
-                      <WidgetCard widget={w} plugin={pluginFor(w)!} palette={palette} />
+                      <WidgetCard widget={w} plugin={pluginFor(w)!} />
                     {:else}
                       <p class="text-meta text-danger">
                         Plugin "{w.plugin}" is missing — drop its folder into the plugins

@@ -13,6 +13,7 @@ import (
 
 	"star-panel/internal/dashboard"
 	"star-panel/internal/plugins"
+	"star-panel/internal/themes"
 )
 
 // resolveDir locates the data or plugins folder. Left alone both live beside
@@ -36,6 +37,7 @@ func resolveDir(value, name string) (string, error) {
 func main() {
 	dataDir := flag.String("data-dir", "", "directory holding the dashboard document (default: beside the binary)")
 	pluginsDir := flag.String("plugins-dir", "", "directory of dropped plugin folders (default: beside the binary)")
+	themesDir := flag.String("themes-dir", "", "directory of imported theme stylesheets (default: beside the binary)")
 	addr := flag.String("addr", ":8080", "listen address")
 	flag.Parse()
 
@@ -50,12 +52,20 @@ func main() {
 	if err != nil {
 		log.Fatalf("resolve plugins dir: %v", err)
 	}
+	resolvedThemes, err := resolveDir(*themesDir, "themes")
+	if err != nil {
+		log.Fatalf("resolve themes dir: %v", err)
+	}
 
 	store, err := dashboard.NewStore(resolvedData)
 	if err != nil {
 		log.Fatalf("init store: %v", err)
 	}
 	registry := plugins.NewRegistry(resolvedPlugins)
+	themeStore, err := themes.NewStore(resolvedThemes)
+	if err != nil {
+		log.Fatalf("init themes: %v", err)
+	}
 	// Built-ins are core's own Plugins: they answer in process, and only the
 	// composition root knows they exist.
 	backends := plugins.NewBackends(registry, map[string]http.Handler{
@@ -74,6 +84,7 @@ func main() {
 			store:    store,
 			registry: registry,
 			backends: backends,
+			themes:   themeStore,
 			web:      web,
 		}),
 	}
@@ -86,7 +97,8 @@ func main() {
 		backends.Stop()
 	}()
 
-	log.Printf("star panel on %s (data dir: %s, plugins dir: %s)", *addr, resolvedData, resolvedPlugins)
+	log.Printf("star panel on %s (data dir: %s, plugins dir: %s, themes dir: %s)",
+		*addr, resolvedData, resolvedPlugins, resolvedThemes)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}

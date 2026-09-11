@@ -70,6 +70,7 @@ func newBackendTestServer(t *testing.T, filesByFolder map[string]map[string]stri
 		store:    store,
 		registry: registry,
 		backends: backends,
+		themes:   newThemeStore(t),
 		web:      testDashboardFS(),
 	}))
 	t.Cleanup(ts.Close)

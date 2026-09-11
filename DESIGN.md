@@ -24,24 +24,24 @@ Every value below is declared once in `apps/web/src/app.css` (see [ADR-0004](./d
 
 ### Color
 
-| Token | Light | Dark | Role |
-| --- | --- | --- | --- |
-| `canvas` | `#F7F8F9` | `#0E1012` | The page behind everything |
-| `surface` | `#FFFFFF` | `#17191C` | Cards, popovers, inputs |
-| `surface-soft` | `#F2F3F5` | `#121417` | Inset areas, secondary controls, hover on a surface |
-| `border` | `#E5E7EB` | `#2A2E34` | The default 1px edge |
-| `border-soft` | `#EFF1F3` | `#22262B` | Edges that should barely register (rows inside a card) |
-| `ink` | `#0D0F12` | `#F3F4F6` | Titles and figures |
-| `body` | `#40454D` | `#C7CBD1` | Running text |
-| `mute` | `#8B919B` | `#878D96` | Meta, labels, disabled and unknown states |
-| `accent` | `#4F6BFF` | `#7C8DFF` | Primary action, links, active segment |
-| `accent-press` | `#3D57EE` | `#6A7CFF` | The pressed state of anything carrying the accent |
-| `on-accent` | `#FFFFFF` | `#0E1012` | Text and glyphs on `accent` |
-| `danger` | `#E5484D` | `#FF6369` | Failed, offline, destructive |
-| `success` | `#2E9E68` | `#3DD68C` | Healthy, running |
-| `focus-ring` | `rgba(79,107,255,.45)` | `rgba(124,141,255,.5)` | The only focus indicator |
+| Token | Default | Role |
+| --- | --- | --- |
+| `canvas` | `#F7F8F9` | The page behind everything |
+| `surface` | `#FFFFFF` | Cards, popovers, inputs |
+| `surface-soft` | `#F2F3F5` | Inset areas, secondary controls, hover on a surface |
+| `border` | `#E5E7EB` | The default 1px edge |
+| `border-soft` | `#EFF1F3` | Edges that should barely register (rows inside a card) |
+| `ink` | `#0D0F12` | Titles and figures |
+| `body` | `#40454D` | Running text |
+| `mute` | `#8B919B` | Meta, labels, disabled and unknown states |
+| `accent` | `#4F6BFF` | Primary action, links, active segment |
+| `accent-press` | `#3D57EE` | The pressed state of anything carrying the accent |
+| `on-accent` | `#FFFFFF` | Text and glyphs on `accent` |
+| `danger` | `#E5484D` | Failed, offline, destructive |
+| `success` | `#2E9E68` | Healthy, running |
+| `focus-ring` | `rgba(79,107,255,.45)` | The only focus indicator |
 
-These fourteen are the only colors in the product, chrome and Plugin widgets alike. One value per token per mode forms a **Palette**; the mode plus the two Palettes is the **Theme** ([CONTEXT.md](./CONTEXT.md)). There is deliberately no warning hue: a state is fine (`success`), not fine (`danger`), or not known yet (`mute`).
+This is the **Palette** the default Theme ships: the fourteen values the chrome and every Plugin widget are built on, and the only colours a utility can name. A **Theme** is a stylesheet that repaints any of them — or anything else — and the owner can import one into `themes/` ([ADR-0006](./docs/adr/0006-themes-are-stylesheets.md)). There is deliberately no warning hue: a state is fine (`success`), not fine (`danger`), or not known yet (`mute`).
 
 ### Shape and depth
 
@@ -52,7 +52,7 @@ These fourteen are the only colors in the product, chrome and Plugin widgets ali
 | `radius-lg` | `16px` | Popovers and large surfaces |
 | `radius-pill` | `999px` | Icon-only controls, segmented controls |
 
-Borders are always 1px; apparent weight comes from color, never from width. There is exactly one shadow, on popovers: `0 8px 24px rgb(0 0 0 / .10)` (dark: `0 8px 24px rgb(0 0 0 / .45)`). Cards, headers and buttons cast nothing.
+Borders are always 1px; apparent weight comes from color, never from width. There is exactly one shadow, on popovers: `0 8px 24px rgb(0 0 0 / .10)`. Cards, headers and buttons cast nothing. A Theme may change the shadow, and one that paints a dark canvas will want to.
 
 ### Type
 
@@ -79,7 +79,7 @@ The default scale, used from this set only: 4, 8, 12, 16, 20, 24, 32, 48, 64. Ca
 ## 3. Rules
 
 - Reference a Token by name; never write a hex, an `rgb()`, a radius or a font size in px inside a component.
-- No `dark:` variants. Modes are the Palette layer's job, so no component knows which mode is active.
+- No `dark:` variants. A Theme's own CSS decides how it reacts to anything, `prefers-color-scheme` included.
 - One accent per screen. No colored borders, no tinted background behind text, no gradients anywhere.
 - A card is `surface` + 1px `border` + `radius-md`. No shadow, no hover lift; hover changes background, never position.
 - Never nest more than two surfaces (canvas → surface → surface-soft).
@@ -92,13 +92,13 @@ The default scale, used from this set only: 4, 8, 12, 16, 20, 24, 32, 48, 64. Ca
 
 ## 4. Components
 
-**App header.** Two rows. The first holds the status dot at the start and, at the end, the `Edit` control plus the mode control. The second holds the centered identity: the mark at 32px followed by the wordmark "Star Panel" in `display`, tracked -0.02em. Under 640px the rows stay two: the identity stays centered and the controls keep their corners.
+**App header.** Two rows. The first holds the status dot at the start and, at the end, the `Edit` control plus the Theme control. The second holds the centered identity: the mark at 32px followed by the wordmark "Star Panel" in `display`, tracked -0.02em. Under 640px the rows stay two: the identity stays centered and the controls keep their corners.
 
 **Identity mark.** A single-color four-point star (inline SVG, `currentColor`), 32px in the header, the same shape as the favicon. It is the only logo asset — no images, no mascot.
 
 **Status dot.** An 8px circle: `success` when the API answers, `danger` when it does not, `mute` while checking. Hover or keyboard focus reveals a popover (`surface`, `radius-lg`, the one shadow) with the API state, the save state and the poll interval. The dot has an accessible name and the detail is reachable without a pointer.
 
-**Mode control.** Three states — light, dark, auto — as a segmented control: `radius-pill` track on `surface-soft`, active segment on `surface` with `ink` text. `auto` follows `prefers-color-scheme` live and is what a fresh Dashboard gets.
+**Theme control.** The active Theme's name on a `surface-soft` `radius-pill`, opening the list of themes the panel knows: the default first, then every stylesheet in `themes/`. Picking one persists its name in the Dashboard. Importing, deleting and downloading belong to edit mode, not here.
 
 **Card.** `surface`, 1px `border`, `radius-md`, 20px padding, 16px between the title block and the body. Title in `subheading`/`ink`, metadata in `meta`/`mute`. In view mode a card shows a title, its body and at most one muted metadata line. Nothing else.
 
@@ -118,7 +118,7 @@ The default scale, used from this set only: 4, 8, 12, 16, 20, 24, 32, 48, 64. Ca
 
 ## 5. Plugin widgets
 
-Plugin widgets are vanilla ESM rendered at runtime, so Tailwind's build-time scanner cannot see them and they must not use utility classes. Their contract is the Token layer, documented for authors in [docs/PLUGINS.md](./docs/PLUGINS.md): the fourteen colors, the four radii and the type steps, consumed as CSS variables (`var(--accent)`). A widget inherits the active Palette from the Dashboard and never hardcodes a color, a font or a shadow.
+Plugin widgets are vanilla ESM rendered at runtime, so Tailwind's build-time scanner cannot see them and they must not use utility classes. Their contract is the Token layer, documented for authors in [docs/PLUGINS.md](./docs/PLUGINS.md): the fourteen colors, the four radii and the type steps, consumed as CSS variables (`var(--accent)`). A widget inherits whatever Theme is active and never hardcodes a color, a font or a shadow; the Tokens it reads are the default Theme's, and any Theme may repaint them.
 
 ## 6. Layout and responsiveness
 
@@ -134,7 +134,7 @@ Content is at most 1200px wide, centered, with 24px gutters (16px under 640px).
 
 ## 7. Accessibility
 
-- Body text meets 4.5:1 and large or UI text meets 3:1 in both Palettes; `mute` is for non-essential text only.
+- The default Theme meets 4.5:1 for body text and 3:1 for large or UI text, and `mute` is for non-essential text only. An imported Theme is its author's business: the panel checks nothing about it.
 - Focus is always visible (`:focus-visible`, 2px ring, 2px offset) and never clipped by `overflow: hidden`.
 - Controls are at least 44px on a coarse pointer and at least 32px on a fine one.
 - Status is never color-only; the dot and every state label carry text or an accessible name.
@@ -144,12 +144,12 @@ Content is at most 1200px wide, centered, with 24px gutters (16px under 640px).
 
 ## 8. Implementation notes
 
-- Tailwind v4 through `@tailwindcss/vite`, imported once from `apps/web/src/main.ts`. One stylesheet, `apps/web/src/app.css`, holds the `@font-face`, the `:root` light defaults and the `@theme inline` mapping. No Svelte `<style>` blocks and no `style="..."` attributes, except the Palette injection below.
-- Runtime theming: `:root` declares the light Palette, and `prefers-color-scheme: dark` the dark one, so the shell renders correctly before the Dashboard loads; `@theme inline` maps each Token to `var(--token)` so utilities compile to the variable and stay dynamic; `App.svelte` writes the active Palette inline on the app shell, as it does today with a shorter list. Those defaults restate the Palette values, so a change to the Theme defaults belongs in three places in one commit: `DESIGN.md`, `app.css` and the Go defaults.
+- Tailwind v4 through `@tailwindcss/vite`, imported once from `apps/web/src/main.ts`. One stylesheet, `apps/web/src/app.css`, holds the `@font-face`, the baseline Palette in `:root` and the `@theme inline` mapping. No Svelte `<style>` blocks and no `style="..."` attributes.
+- Runtime theming: `app.css` declares the baseline, and `@theme inline` maps each Token to `var(--token)` so utilities compile to the variable and a Theme can repaint it. The server writes the active Theme's `<link>` into `index.html` as it serves it, so the panel never paints the baseline first and flips. Changing the baseline means changing `DESIGN.md` and `app.css` together; an imported Theme changes nothing but itself.
 - Naming: CSS custom properties are kebab-case (`--surface-soft`); the JSON, TypeScript and Go fields are their camelCase twins (`surfaceSoft`).
-- Theme shape: `mode` ∈ `light | dark | auto`, plus a light and a dark Palette of these fourteen colors. Radii, type, spacing and motion are not part of the Theme.
+- Theme shape: a Dashboard stores the *name* of the Theme it renders with. `default` is the baseline in `app.css`, which ships inside the binary and cannot be deleted; every other name is a stylesheet in `themes/`, beside the binary like `data/` and `plugins/`. A Theme may set any variable and any rule it likes; the fourteen Tokens, the component classes in `app.css` and the `data-part` attributes are what the panel promises to keep.
 - Font: Geist Sans variable under `apps/web/public/fonts/`, with `OFL.txt` beside it (Vite copies `public/` into `dist/`), `font-display: swap`, preloaded in `index.html`. The shipped face is the full charset at ~68 KB rather than a subset: subsetting would modify the font, which the OFL's reserved-name clause makes worth avoiding. Geist Mono is not shipped; numbers use tabular figures.
 - Plugin widgets keep the CSS-variable contract of [ADR-0003](./docs/adr/0003-plugin-subprocess-vanilla-esm.md).
 - The default Tailwind colour palette is switched off (`--color-*: initial`), so the fourteen tokens are the only colours a utility can name.
 - Sources are declared explicitly (`@source "../src"`, `@source "../index.html"`) because the repo ships no `.gitignore`: automatic detection would also scan `dist/` and feed the built CSS back into the next build.
-- `--popover-shadow` is a system value rather than a Theme token: `app.css` ships a light and a dark value and the app shell picks one by marking the resolved mode with `data-mode`.
+- `--popover-shadow` is a baseline value like the rest: `app.css` sets it, and a Theme that paints a dark canvas overrides it.

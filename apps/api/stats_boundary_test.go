@@ -28,6 +28,7 @@ func newBuiltinTestServer(t *testing.T, builtins map[string]http.Handler) (*http
 		store:    store,
 		registry: registry,
 		backends: backends,
+		themes:   newThemeStore(t),
 		web:      testDashboardFS(),
 	}))
 	t.Cleanup(ts.Close)

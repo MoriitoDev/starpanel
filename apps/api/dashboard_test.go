@@ -29,6 +29,7 @@ func newTestServer(t *testing.T) (*httptest.Server, string) {
 		store:    store,
 		registry: registry,
 		backends: backends,
+		themes:   newThemeStore(t),
 		web:      testDashboardFS(),
 	})), dataDir
 }
@@ -69,26 +70,9 @@ func TestDashboardGetReturnsDefaultShape(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", res.StatusCode)
 	}
-	theme, ok := body["theme"].(map[string]any)
-	if !ok {
-		t.Fatalf("theme missing or wrong type: %v", body["theme"])
-	}
-	if theme["mode"] != "auto" {
-		t.Errorf("theme.mode = %v, want auto", theme["mode"])
-	}
-	tokenKeys := []string{"canvas", "surface", "surfaceSoft", "border",
-		"borderSoft", "ink", "body", "mute", "accent", "accentPress",
-		"onAccent", "danger", "success", "focusRing"}
-	for _, name := range []string{"light", "dark"} {
-		palette, ok := theme[name].(map[string]any)
-		if !ok {
-			t.Fatalf("theme.%s missing or wrong type: %v", name, theme[name])
-		}
-		for _, key := range tokenKeys {
-			if color, _ := palette[key].(string); color == "" {
-				t.Errorf("theme.%s.%s is empty", name, key)
-			}
-		}
+	// A Theme is a name now, and the default one is not a file.
+	if theme, _ := body["theme"].(string); theme != dashboard.DefaultTheme {
+		t.Errorf("theme = %v, want %q", body["theme"], dashboard.DefaultTheme)
 	}
 	widgets, ok := body["widgets"].([]any)
 	if !ok || len(widgets) == 0 {
@@ -111,11 +95,7 @@ func TestDashboardSaveGetRoundTrip(t *testing.T) {
 			{ID: "clock", Plugin: "sysmon", Size: "large", Enabled: true, Config: json.RawMessage(`{"tz":"UTC"}`)},
 			{ID: "notes", Plugin: "sysmon", Size: "small", Enabled: false},
 		},
-		Theme: dashboard.Theme{
-			Mode:  "auto",
-			Light: dashboard.DefaultLightPalette(),
-			Dark:  dashboard.DefaultDarkPalette(),
-		},
+		Theme:   "default",
 	}
 	res, _ := doJSON(t, ts, http.MethodPut, "/api/v1/dashboard", saved)
 	if res.StatusCode != http.StatusOK {
@@ -147,42 +127,18 @@ func TestDashboardSaveRejectsInvalidDocuments(t *testing.T) {
 	ts, _ := newTestServer(t)
 	defer ts.Close()
 
-	fullLight := dashboard.DefaultLightPalette()
-	fullDark := dashboard.DefaultDarkPalette()
-	noAccent := dashboard.DefaultDarkPalette()
-	noAccent.Accent = ""
-
 	cases := map[string]dashboard.Dashboard{
 		"empty widget id": {
 			Widgets: []dashboard.Widget{{ID: "", Plugin: "sysmon", Size: "small", Enabled: true}},
-			Theme:   dashboard.Theme{Mode: "dark", Light: fullLight, Dark: fullDark},
 		},
 		"duplicate widget ids": {
 			Widgets: []dashboard.Widget{
 				{ID: "a", Plugin: "sysmon", Size: "small", Enabled: true},
 				{ID: "a", Plugin: "sysmon", Size: "small", Enabled: true},
 			},
-			Theme: dashboard.Theme{Mode: "dark", Light: fullLight, Dark: fullDark},
 		},
 		"bad size": {
 			Widgets: []dashboard.Widget{{ID: "a", Plugin: "sysmon", Size: "huge", Enabled: true}},
-			Theme:   dashboard.Theme{Mode: "dark", Light: fullLight, Dark: fullDark},
-		},
-		"bad theme mode": {
-			Widgets: []dashboard.Widget{{ID: "a", Plugin: "sysmon", Size: "small", Enabled: true}},
-			Theme:   dashboard.Theme{Mode: "solarized", Light: fullLight, Dark: fullDark},
-		},
-		"missing dark accent": {
-			Widgets: []dashboard.Widget{{ID: "a", Plugin: "sysmon", Size: "small", Enabled: true}},
-			Theme: dashboard.Theme{
-				Mode:  "dark",
-				Light: fullLight,
-				Dark:  noAccent,
-			},
-		},
-		"missing light palette": {
-			Widgets: []dashboard.Widget{{ID: "a", Plugin: "sysmon", Size: "small", Enabled: true}},
-			Theme:   dashboard.Theme{Mode: "light", Dark: fullDark},
 		},
 	}
 	for name, doc := range cases {
@@ -224,7 +180,7 @@ func TestDashboardSaveAnswersWithTheStoredDocument(t *testing.T) {
 
 	sent := dashboard.Dashboard{
 		Widgets: []dashboard.Widget{{ID: "solo", Plugin: "sysmon", Size: "small", Enabled: true}},
-		Theme:   dashboard.Theme{Mode: "auto", Light: dashboard.DefaultLightPalette(), Dark: dashboard.DefaultDarkPalette()},
+		Theme:   "default",
 	}
 	res, body := doJSON(t, ts, http.MethodPut, "/api/v1/dashboard", sent)
 	if res.StatusCode != http.StatusOK {
@@ -243,15 +199,14 @@ func TestDashboardSaveAnswersWithTheStoredDocument(t *testing.T) {
 	}
 }
 
-// A document that cannot validate is the operator's problem to see. Serving
-// it would hand the frontend a dashboard.Dashboard it cannot render, and the colours it
-// would paint with are undefined.
+// A document that cannot validate is the operator's problem to see: serving it
+// would hand the frontend a Dashboard it cannot render.
 func TestDashboardGetFailsLoudlyOnAnInvalidStoredDocument(t *testing.T) {
 	ts, dataDir := newTestServer(t)
 	defer ts.Close()
 
 	broken := `{"widgets":[{"id":"a","plugin":"sysmon","size":"huge","enabled":true,"pollSeconds":10}],` +
-		`"theme":{"mode":"solarized","light":{"canvas":"#fff"},"dark":{"canvas":"#000"}}}`
+		`"theme":"default"}`
 	if err := os.WriteFile(filepath.Join(dataDir, "dashboard.json"), []byte(broken), 0o644); err != nil {
 		t.Fatalf("write broken document: %v", err)
 	}
@@ -272,11 +227,7 @@ func TestDashboardPersistsAcrossRestart(t *testing.T) {
 
 	saved := dashboard.Dashboard{
 		Widgets: []dashboard.Widget{{ID: "solo", Plugin: "sysmon", Size: "medium", Enabled: false}},
-		Theme: dashboard.Theme{
-			Mode:  "light",
-			Light: func() dashboard.Palette { p := dashboard.DefaultLightPalette(); p.Canvas = "#fafafa"; return p }(),
-			Dark:  fullDefaultDark(),
-		},
+		Theme:   "dracula",
 	}
 	res, _ := doJSON(t, ts, http.MethodPut, "/api/v1/dashboard", saved)
 	if res.StatusCode != http.StatusOK {
@@ -296,8 +247,4 @@ func TestDashboardPersistsAcrossRestart(t *testing.T) {
 	if fmt.Sprint(got) != fmt.Sprint(saved) {
 		t.Errorf("dashboard lost across restart:\n got %+v\nwant %+v", got, saved)
 	}
-}
-
-func fullDefaultDark() dashboard.Palette {
-	return dashboard.DefaultDarkPalette()
 }

@@ -1,14 +1,13 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { Palette, PluginInfo, Widget, WidgetContext } from "./types";
+  import type { PluginInfo, Widget, WidgetContext } from "./types";
 
   interface Props {
     widget: Widget;
     plugin: PluginInfo;
-    palette: Palette;
   }
 
-  let { widget, plugin, palette }: Props = $props();
+  let { widget, plugin }: Props = $props();
 
   let host = $state<HTMLDivElement>();
   let error = $state<string | null>(null);
@@ -20,8 +19,8 @@
   }
 
   // Tracked inputs are primitives only, so the 10s dashboard re-sync does
-  // not reset widgets whose content did not change. Everything read
-  // inside untrack (including the palette snapshot) is captured at mount.
+  // not reset widgets whose content did not change. Everything read inside
+  // untrack is captured at mount.
   $effect(() => {
     [
       widget.enabled,
@@ -51,7 +50,6 @@
           host?.replaceChildren(target);
           const ctx: WidgetContext = {
             config: widget.config ?? {},
-            theme: palette,
             pollSeconds: widget.pollSeconds,
             fetch: (path: string) =>
               fetch(`/api/v1/plugins/${plugin.name}/proxy/${path}`)
