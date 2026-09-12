@@ -1,0 +1,18 @@
+services:
+  star-panel:
+    build: .
+    image: star-panel
+    container_name: star-panel
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    # Named volumes rather than bind mounts: Docker creates them with the right
+    # owner, so the panel can write its Dashboard without a chown first. To
+    # drop a Theme in by hand, `docker cp it star-panel:/app/themes/`.
+    volumes:
+      - star-panel-data:/app/data
+      - star-panel-themes:/app/themes
+
+volumes:
+  star-panel-data:
+  star-panel-themes:

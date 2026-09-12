@@ -53,6 +53,21 @@ C:\star-panel\star-panel -addr :8080
 
 A binary built without the web build still runs: it serves the API and explains that the Dashboard is missing.
 
+## Run it in Docker
+
+```powershell
+# from the repo root: builds the Dashboard, the binary, and the image
+docker compose up -d --build
+```
+
+Then http://localhost:8080. The Dashboard and the imported Themes live in named volumes, so they survive a rebuild; to drop a Theme in by hand, `docker cp midnight.css star-panel:/app/themes/`.
+
+Three things worth knowing before you put this on a server:
+
+- **Stats are the container's view.** `system-stats` reads `/proc` and the root filesystem, so memory and CPU are roughly the host's, but **disk is the container's**, not your server's. A panel that reports the wrong disk is worse than one that reports none, so treat the disk row as decoration until the stats source can be pointed at a host mount.
+- **A Plugin backend needs its runtime in the image.** The bundled `system-stats` is core, `hello-widget` has no backend, and `echo` is left out on purpose: its backend is a Node script and the runtime image has no Node.
+- **A Plugin that talks to Docker needs the socket.** Mount `/var/run/docker.sock` and make sure the container's user may use it.
+
 ## Commands
 
 ```powershell

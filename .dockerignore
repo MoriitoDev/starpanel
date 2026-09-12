@@ -1,0 +1,19 @@
+# Nothing built locally: the image builds the Dashboard and the binary itself.
+node_modules
+**/node_modules
+apps/api/webdist
+apps/api/star-panel
+apps/api/star-panel.exe
+apps/api/star-panel.exe~
+apps/web/dist
+
+# Local state, which lives in volumes instead.
+apps/api/data
+apps/api/themes
+
+# Notes and tool output, which the image has no use for.
+.git
+.scratch
+.openchamber
+.agents
+.codex
