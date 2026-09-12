@@ -29,9 +29,52 @@ Without `@name`, an import is named `theme-1`, `theme-2` and so on; a file dropp
 
 **The component classes.** `.btn`, `.btn-primary`, `.btn-secondary`, `.btn-ghost`, `.control`.
 
-**Five region hooks.** `data-part="header"`, `"identity"`, `"card"`, `"empty"` and `"error"`.
+**Six region hooks.** `data-part="app"` (the page itself), `"header"`, `"identity"`, `"card"`, `"empty"` and `"error"`.
 
 That is the whole promise. Anything else you write against our markup is allowed and **unsupported**: it works until we tidy a class or a `div`, and then it does not. If you need a hook we do not have, ask for it rather than reaching into the markup.
+
+## Things to change, and where
+
+**The page itself.** `data-part="app"` is the root element, so this is where a wallpaper goes:
+
+```css
+[data-part="app"] {
+  background-image: url("https://example.com/wallpaper.jpg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+```
+
+Cards sit on top of it with an opaque `--surface`, so the image shows between and around them. Make `--surface` translucent if you want it behind them too, and remember that text over a picture costs contrast — your call to make, not the panel's.
+
+**Corners.** The four radii are variables, so squaring the panel off is one rule:
+
+```css
+:root { --radius-sm: 2px; --radius-md: 2px; --radius-lg: 2px; --radius-pill: 2px; }
+```
+
+**Spacing.** `--spacing` is the unit every spacing utility multiplies, so changing it changes all of them at once — blunt, and occasionally exactly what you want:
+
+```css
+:root { --spacing: 0.2rem; }   /* tighter everywhere */
+```
+
+For one region rather than everywhere, use its hook: `[data-part="card"] { padding: 2rem; }`.
+
+**Type.** The family and the steps are variables too:
+
+```css
+:root {
+  --font-sans: "Iowan Old Style", Georgia, serif;
+  --text-base: 17px;
+  --text-base--line-height: 27px;
+}
+```
+
+**The chrome.** `.btn`, `.btn-primary`, `.btn-secondary`, `.btn-ghost` and `.control` are ours and staying; a Theme may restyle any of them.
+
+**On specificity.** Your stylesheet is linked after ours, so a rule of yours that is equally specific wins without `!important`. When you find yourself reaching for `!important`, that is usually a sign you are styling something outside the contract.
 
 ## Rules
 

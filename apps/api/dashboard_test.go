@@ -70,7 +70,7 @@ func TestDashboardGetReturnsDefaultShape(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", res.StatusCode)
 	}
-	// A Theme is a name now, and the default one is not a file.
+
 	if theme, _ := body["theme"].(string); theme != dashboard.DefaultTheme {
 		t.Errorf("theme = %v, want %q", body["theme"], dashboard.DefaultTheme)
 	}

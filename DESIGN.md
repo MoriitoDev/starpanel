@@ -96,6 +96,8 @@ The default scale, used from this set only: 4, 8, 12, 16, 20, 24, 32, 48, 64. Ca
 
 **Identity mark.** A single-color four-point star (inline SVG, `currentColor`), 32px in the header, the same shape as the favicon. It is the only logo asset — no images, no mascot.
 
+**App shell.** The root element carries `data-part="app"` and paints `canvas`. It is the hook a Theme uses for a wallpaper, and the reason `surface` has to stay opaque if the wallpaper is to stay behind the cards.
+
 **Status dot.** An 8px circle: `success` when the API answers, `danger` when it does not, `mute` while checking. Hover or keyboard focus reveals a popover (`surface`, `radius-lg`, the one shadow) with the API state, the save state and the poll interval. The dot has an accessible name and the detail is reachable without a pointer.
 
 **Theme control.** Edit mode only: choosing a look is editing, and view mode shows the result rather than the controls that produced it. A compact select on a `surface-soft` `radius-pill`, showing the active Theme's name and opening the list — the default first, then every stylesheet in `themes/`, with a file-missing note for one whose file has gone. Picking one persists its name in the Dashboard and swaps the stylesheet link in place, so nothing reloads. Importing, deleting and downloading live in the Themes section below.

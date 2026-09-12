@@ -37,15 +37,9 @@
   --success: #2e9e68;
   --focus-ring: rgba(79, 107, 255, .45);
   --popover-shadow: 0 8px 24px rgb(0 0 0 / .10);
-
-  /* The one shadow the system allows, and the hint native controls use. A
-     Theme that wants a dark look overrides both. */
   color-scheme: light;
 }
 
-/* `static` keeps these emitted as real CSS variables whether or not a utility
-   happens to use them: Plugin widgets consume them directly (DESIGN.md §5),
-   so var(--radius-md) and var(--text-base) have to resolve at runtime. */
 @theme static {
   --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

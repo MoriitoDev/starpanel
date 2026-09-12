@@ -6,7 +6,7 @@ The Dashboard ships exactly one look. A Theme is a fixed pair of Palettes chosen
 
 ## Solution
 
-A Theme becomes a CSS file the owner imports into `themes/`, layered on top of the baseline that ships in `app.css`. The Dashboard document stores only the name of the active Theme. Modes disappear with it: no light/dark selector, no `auto`, no second Palette. What a Theme author can rely on is written down as a contract: the token variables, the component classes, and five `data-part` attributes.
+A Theme becomes a CSS file the owner imports into `themes/`, layered on top of the baseline that ships in `app.css`. The Dashboard document stores only the name of the active Theme. Modes disappear with it: no light/dark selector, no `auto`, no second Palette. What a Theme author can rely on is written down as a contract: the token variables, the component classes, and six `data-part` attributes.
 
 ## User Stories
 

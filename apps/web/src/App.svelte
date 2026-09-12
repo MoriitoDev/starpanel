@@ -269,7 +269,7 @@
   });
 </script>
 
-<div class="min-h-dvh bg-canvas font-sans text-body">
+<div class="min-h-dvh bg-canvas font-sans text-body" data-part="app">
   <div class="mx-auto flex max-w-[1200px] flex-col px-4 py-6 sm:px-6">
     {#if dashboard}
       <div class="flex items-center justify-between gap-4" data-part="header">
