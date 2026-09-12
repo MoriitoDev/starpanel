@@ -149,3 +149,31 @@ func TestPluginModuleServing(t *testing.T) {
 		}
 	}
 }
+
+// A Plugin that declares something this machine does not have has to say so in
+// the listing, before anyone adds its Widget and waits for a timeout.
+func TestPluginListingReportsAMissingRequirement(t *testing.T) {
+	ts := newTestServerWithPlugins(t, map[string]map[string]string{
+		"needs-node": {
+			"manifest.json": `{"name":"needs-node","version":"0.1.0",` +
+				`"widgets":[{"id":"w","title":"W","module":"widget.js"}],` +
+				`"requires":[{"command":"definitely-not-installed-xyz","minVersion":"20"}]}`,
+			"widget.js": "export default () => {};",
+		},
+	})
+	defer ts.Close()
+
+	_, body := doJSON(t, ts, http.MethodGet, "/api/v1/plugins", nil)
+	plugins, _ := body["plugins"].([]any)
+	if len(plugins) != 1 {
+		t.Fatalf("plugins = %v, want the one", plugins)
+	}
+	plugin, _ := plugins[0].(map[string]any)
+	problem, _ := plugin["problem"].(string)
+	if !strings.Contains(problem, "definitely-not-installed-xyz") {
+		t.Errorf("problem = %q, want the missing command named", problem)
+	}
+	if !strings.Contains(problem, "20") {
+		t.Errorf("problem = %q, want the version the author asked for", problem)
+	}
+}

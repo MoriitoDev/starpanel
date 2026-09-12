@@ -3,6 +3,7 @@ package plugins
 import (
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -26,6 +27,30 @@ type Entry struct {
 	Dir      string
 	Manifest Manifest
 	Err      error
+}
+
+// Missing reports the requirements this Plugin declares that are not reachable
+// from where it sits, so the panel can say what is wrong before a Widget fails
+// with a timeout. A bare name is looked up in the PATH; a path with a separator
+// in it — ./backend — is looked for inside the Plugin's own folder, which is
+// where its working directory points.
+func (e Entry) Missing() []Requirement {
+	var missing []Requirement
+	for _, required := range e.Manifest.Requires {
+		if !reachable(required.Command, e.Dir) {
+			missing = append(missing, required)
+		}
+	}
+	return missing
+}
+
+func reachable(command, dir string) bool {
+	if strings.ContainsAny(command, `/\`) {
+		info, err := os.Stat(filepath.Join(dir, filepath.FromSlash(command)))
+		return err == nil && !info.IsDir()
+	}
+	_, err := exec.LookPath(command)
+	return err == nil
 }
 
 // Discover scans the plugins directory, oldest name first as the filesystem

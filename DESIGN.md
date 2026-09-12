@@ -118,6 +118,10 @@ The default scale, used from this set only: 4, 8, 12, 16, 20, 24, 32, 48, 64. Ca
 
 **Widget failure.** A widget that cannot load or poll shows one `meta` line in `danger` inside its card: `Widget failed: <reason>`. The card stays and the panel keeps working (ADR-0003).
 
+**Unavailable Plugin.** A Plugin whose `requires` are not met is listed in edit mode under its own heading, with a Phosphor warning icon in `danger` and the reason behind a disclosure. The panel never installs anything: it says what is missing, and `docs/PLUGINS.md` says what to do about it.
+
+**Icons.** They come from [Phosphor](https://phosphoricons.com/) and are inlined in `apps/web/src/lib/Icon.svelte` rather than fetched, so the panel works offline and ships no icon runtime. Copy the path from the site when you need another one; never load an icon from a CDN. The identity mark is the one exception — it is ours, and it lives in `StarMark.svelte`.
+
 ## 5. Plugin widgets
 
 Plugin widgets are vanilla ESM rendered at runtime, so Tailwind's build-time scanner cannot see them and they must not use utility classes. Their contract is the Token layer, documented for authors in [docs/PLUGINS.md](./docs/PLUGINS.md): the fourteen colors, the four radii and the type steps, consumed as CSS variables (`var(--accent)`). A widget inherits whatever Theme is active and never hardcodes a color, a font or a shadow; the Tokens it reads are the default Theme's, and any Theme may repaint them.

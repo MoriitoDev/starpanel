@@ -251,6 +251,9 @@ type PluginInfo struct {
 	Version string             `json:"version"`
 	Widgets []PluginWidgetInfo `json:"widgets"`
 	Backend bool               `json:"backend"`
+	// Problem says why this Plugin cannot run here, in the words a person
+	// reads. Empty when nothing is wrong.
+	Problem string `json:"problem,omitempty"`
 }
 
 // PluginError reports a rejected folder without breaking the listing.
@@ -292,10 +295,29 @@ func listPluginsHandler(registry *plugins.Registry) http.HandlerFunc {
 					Module: moduleURL(entry.Manifest.Name, widget.Module),
 				})
 			}
+			if missing := entry.Missing(); len(missing) > 0 {
+				info.Problem = requirementProblem(missing)
+			}
 			list.Plugins = append(list.Plugins, info)
 		}
 		writeJSON(w, http.StatusOK, list)
 	}
+}
+
+// requirementProblem turns what a Plugin is missing into a sentence. The panel
+// never installs anything — no auth, no privileges, and an unauthenticated
+// endpoint that runs package managers is a hole — so it says what is missing
+// and docs/PLUGINS.md says what to do about it.
+func requirementProblem(missing []plugins.Requirement) string {
+	labels := make([]string, 0, len(missing))
+	for _, required := range missing {
+		label := required.Command
+		if required.MinVersion != "" {
+			label += " >= " + required.MinVersion
+		}
+		labels = append(labels, label)
+	}
+	return "needs " + strings.Join(labels, ", ") + ", which is not on this machine"
 }
 
 // pluginModuleHandler serves a Widget's ESM entry out of its Plugin folder.

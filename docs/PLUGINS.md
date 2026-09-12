@@ -15,6 +15,48 @@ export default function render(el, ctx) {
 
 `ctx` carries `config` (free-form JSON from the Dashboard), `pollSeconds`, and `fetch`, which targets this Plugin's `/proxy/` path (backend Plugins only). Return a cleanup function to release timers and listeners.
 
+## The Manifest
+
+```json
+{
+  "name": "my-plugin",
+  "version": "0.1.0",
+  "widgets": [{ "id": "my-widget", "title": "My Widget", "module": "widget.js" }],
+  "backend": { "command": ["node", "backend.mjs"] },
+  "requires": [{ "command": "node", "minVersion": "20" }]
+}
+```
+
+The folder name must equal `name`, and every widget's `module` is a path inside it. `backend` and `requires` are optional.
+
+## Backends
+
+A backend is **a program core starts as a subprocess**, in any language, as long as it speaks HTTP on localhost:
+
+- `command` is an argv array, run with the Plugin's folder as its working directory.
+- Core allocates a free port and hands it over twice: `{port}` is replaced in any argument, and it arrives as `STAR_PANEL_PORT`.
+- The backend must listen on `127.0.0.1`, not on every interface.
+- It sees its own paths: a request to `/api/v1/plugins/my-plugin/proxy/items` reaches it as `/items`.
+- Answer with JSON. If it dies, core restarts it every two seconds and the Widget reports the outage; the panel keeps working either way.
+
+## What a Plugin needs to run
+
+`requires` is the honest way to say what has to exist on the machine. Each entry names a command and, optionally, the version you had in mind.
+
+```json
+"requires": [{ "command": "node", "minVersion": "20" }]
+```
+
+A bare name is looked up in the `PATH`; a path with a separator — `./backend` — is looked for inside your Plugin's folder. The panel reports what is missing in the Plugin listing, before anyone adds the Widget, and shows the version you asked for without judging the one installed: comparing versions means parsing them, and every tool writes them differently, so the person reading decides.
+
+There are two ways to satisfy a requirement, and both are legitimate:
+
+**The runtime is on the machine.** `node`, `python3`, `java`. Simple, and it leaves your Plugin a couple of files.
+
+**The Plugin brings its own.** A path like `./backend` points at a binary inside your folder, so the machine needs nothing. Rust, Go and Zig give you a static binary for free; Node can with `bun build --compile` or `deno compile`; Java needs `jlink`, which trims a runtime to about 40 MB. A compiled binary is per-platform: ship one per platform you support, or a small wrapper that picks.
+
+**The panel diagnoses; it never installs.** It has no authentication by design, it runs without privileges, and a manifest that could name an installer would let a Plugin decide what runs on your server. So the panel says what is missing and you decide: install it, or, if you run Star Panel in Docker, add it to the image and rebuild.
+
 ## Styling: the Token contract
 
 Widgets are loaded at runtime, so Tailwind's build-time scanner never sees them and **utility classes do not work**. The Dashboard instead sets the design Tokens as CSS variables on the shell around every card, so a Widget styles itself against the same values as the chrome and follows whatever Theme the owner has imported for free.
@@ -42,4 +84,8 @@ value.style.cssText =
 
 ## Reference
 
-[`hello-widget`](../apps/api/plugins/hello-widget/README.md) is the smallest complete example, and `system-stats` is the same shape with a backend behind it.
+[`hello-widget`](../apps/api/plugins/hello-widget/README.md) is the smallest complete example, and `system-stats-custom` is the same shape with a backend behind it.
+
+## Publishing one
+
+There is no registry: a Plugin is a folder, and installing it means copying it into `plugins/` on the machine running Star Panel and picking it in the panel's edit mode. Publish yours as a repository with the folder inside and a README that says what it needs — `requires` says it too.

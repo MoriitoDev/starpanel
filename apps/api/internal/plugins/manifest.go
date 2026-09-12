@@ -19,6 +19,18 @@ type Manifest struct {
 	Version string           `json:"version"`
 	Widgets []ManifestWidget `json:"widgets"`
 	Backend *BackendSpec     `json:"backend,omitempty"`
+	Requires []Requirement   `json:"requires,omitempty"`
+}
+
+// Requirement is something a Plugin needs on the machine to run: a command that
+// has to be reachable, and the version its author had in mind.
+//
+// The version is shown, never judged. Comparing versions means parsing them and
+// every tool writes them differently; an owner reading "needs node >= 20" next
+// to the version they have is a better answer than a guess.
+type Requirement struct {
+	Command    string `json:"command"`
+	MinVersion string `json:"minVersion,omitempty"`
 }
 
 // ManifestWidget declares one widget the plugin provides. Module is the
@@ -87,6 +99,11 @@ func (m *Manifest) validate(folderName string) error {
 	}
 	if m.Backend != nil && len(m.Backend.Command) == 0 {
 		return errors.New("manifest: backend command is required when backend is declared")
+	}
+	for i, required := range m.Requires {
+		if required.Command == "" {
+			return fmt.Errorf("manifest: requires %d: command is required", i)
+		}
 	}
 	return nil
 }

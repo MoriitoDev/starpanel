@@ -29,7 +29,7 @@ RUN apk add --no-cache ca-certificates \
 WORKDIR /app
 COPY --from=api /out/star-panel /app/star-panel
 COPY apps/api/plugins/hello-widget /app/plugins/hello-widget
-COPY apps/api/plugins/system-stats /app/plugins/system-stats
+COPY apps/api/plugins/system-stats-custom /app/plugins/system-stats-custom
 RUN mkdir -p /app/data /app/themes && chown -R starpanel:starpanel /app
 USER starpanel
 EXPOSE 8080

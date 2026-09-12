@@ -10,6 +10,7 @@
     themeHref
   } from "./api";
   import StarMark from "./lib/StarMark.svelte";
+  import Icon from "./lib/Icon.svelte";
   import StatusDot from "./lib/StatusDot.svelte";
   import WidgetCard from "./WidgetCard.svelte";
   import type {
@@ -142,6 +143,7 @@
     value: string;
     label: string;
     present: boolean;
+    problem: string;
   }
 
   function widgetOptions(): WidgetOption[] {
@@ -154,7 +156,8 @@
         options.push({
           value: `${plugin.name}|${spec.id}`,
           label: `${plugin.name} · ${spec.title}`,
-          present: present ?? false
+          present: present ?? false,
+          problem: plugin.problem ?? ""
         });
       }
     }
@@ -324,7 +327,9 @@
               <option value="" disabled>Add widget…</option>
               {#each widgetOptions() as option (option.value)}
                 <option value={option.value} disabled={option.present}>
-                  {option.label}{option.present ? " (on the panel)" : ""}
+                  {option.label}{option.present ? " (on the panel)" : ""}{option.problem
+                    ? " (unavailable)"
+                    : ""}
                 </option>
               {/each}
             </select>
@@ -335,6 +340,30 @@
               onclick={() => addWidget()}>Add</button
             >
           </div>
+        {/if}
+
+        {#if editing && plugins.some((plugin) => plugin.problem)}
+          <section
+            class="rounded-md border border-border bg-surface p-5"
+            aria-labelledby="plugins-unavailable"
+          >
+            <h2 id="plugins-unavailable" class="text-subheading text-ink">
+              Plugins that cannot run here
+            </h2>
+            <ul class="mt-2 space-y-2">
+              {#each plugins.filter((plugin) => plugin.problem) as plugin (plugin.name)}
+                <li>
+                  <details>
+                    <summary class="flex cursor-pointer items-center gap-2 text-base text-ink">
+                      <Icon name="warning" class="h-4 w-4 shrink-0 text-danger" />
+                      {plugin.name}
+                    </summary>
+                    <p class="mt-1 pl-6 text-base text-body">{plugin.problem}</p>
+                  </details>
+                </li>
+              {/each}
+            </ul>
+          </section>
         {/if}
 
         {#if editing}

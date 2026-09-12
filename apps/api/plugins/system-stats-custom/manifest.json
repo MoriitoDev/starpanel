@@ -1,8 +1,8 @@
 {
-  "name": "echo",
+  "name": "system-stats-custom",
   "version": "0.1.0",
   "widgets": [
-    { "id": "echo", "title": "Echo", "module": "widget.js" }
+    { "id": "system-stats-custom", "title": "System Stats", "module": "widget.js" }
   ],
   "backend": {
     "command": ["node", "backend.mjs"]

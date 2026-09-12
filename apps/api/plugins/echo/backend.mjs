@@ -9,7 +9,7 @@ const plugin = process.env.STAR_PANEL_PLUGIN ?? "echo";
 const server = createServer((req, res) => {
   const json = (status, body) => {
     res.writeHead(status, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(body));
+    res.end(JSON.stringify(body)); 
   };
   if (req.method === "GET" && req.url === "/ping") {
     json(200, { ok: true, plugin, time: Date.now() });

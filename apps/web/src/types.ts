@@ -29,6 +29,8 @@ export interface PluginInfo {
   version: string;
   widgets: PluginWidgetSpec[];
   backend: boolean;
+  /** Why this Plugin cannot run here, in words; absent when nothing is wrong. */
+  problem?: string;
 }
 
 export interface PluginError {
