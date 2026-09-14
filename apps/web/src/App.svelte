@@ -5,7 +5,9 @@
     fetchDashboard,
     fetchPlugins,
     fetchThemes,
+    importPlugin,
     importTheme,
+    pluginArchiveHref,
     saveDashboard,
     themeHref
   } from "./api";
@@ -41,6 +43,11 @@
   let themeError = $state<string | null>(null);
   let themeNotice = $state<string | null>(null);
   let fileInput = $state<HTMLInputElement>();
+  let pluginFileInput = $state<HTMLInputElement>();
+  let pluginError = $state<string | null>(null);
+  let pluginNotice = $state<string | null>(null);
+  // The import itself succeeded; this is what the Plugin cannot find here.
+  let pluginProblem = $state<string | null>(null);
 
   let activeTheme = $derived(dashboard?.theme ?? "default");
   let activeThemeName = $derived(
@@ -112,6 +119,20 @@
       await refreshThemes();
     } catch (err) {
       themeError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function importPluginFile(file: File): Promise<void> {
+    pluginError = null;
+    pluginNotice = null;
+    pluginProblem = null;
+    try {
+      const imported = await importPlugin(file);
+      pluginNotice = `${imported.name} ${imported.version} imported.`;
+      pluginProblem = imported.problem ?? null;
+      await refreshPlugins();
+    } catch (err) {
+      pluginError = err instanceof Error ? err.message : String(err);
     }
   }
 
@@ -342,30 +363,6 @@
           </div>
         {/if}
 
-        {#if editing && plugins.some((plugin) => plugin.problem)}
-          <section
-            class="rounded-md border border-border bg-surface p-5"
-            aria-labelledby="plugins-unavailable"
-          >
-            <h2 id="plugins-unavailable" class="text-subheading text-ink">
-              Plugins that cannot run here
-            </h2>
-            <ul class="mt-2 space-y-2">
-              {#each plugins.filter((plugin) => plugin.problem) as plugin (plugin.name)}
-                <li>
-                  <details>
-                    <summary class="flex cursor-pointer items-center gap-2 text-base text-ink">
-                      <Icon name="warning" class="h-4 w-4 shrink-0 text-danger" />
-                      {plugin.name}
-                    </summary>
-                    <p class="mt-1 pl-6 text-base text-body">{plugin.problem}</p>
-                  </details>
-                </li>
-              {/each}
-            </ul>
-          </section>
-        {/if}
-
         {#if editing}
           <section
             class="rounded-md border border-border bg-surface p-5"
@@ -432,6 +429,83 @@
                       >
                     </li>
                   {/if}
+                {/each}
+              </ul>
+            {/if}
+          </section>
+        {/if}
+
+        <!-- Plugins: the same shape as Themes below, with a ZIP in place of a stylesheet. -->
+        {#if editing}
+          <section
+            class="rounded-md border border-border bg-surface p-5"
+            aria-labelledby="plugins-heading"
+          >
+            <h2 id="plugins-heading" class="text-subheading text-ink">Plugins</h2>
+            <p class="mt-1 text-meta text-mute">
+              A Plugin is a folder of code: a <span class="font-mono">manifest.json</span>,
+              widget modules, and sometimes a program core starts with the panel's privileges.
+              Import one as a ZIP of its folder, or download a folder to take it elsewhere.
+              Importing runs code — the panel has no login, so keep it to a network you trust.
+            </p>
+
+            <div class="mt-4 flex flex-wrap items-center gap-2">
+              <input
+                bind:this={pluginFileInput}
+                class="hidden"
+                type="file"
+                accept=".zip,application/zip"
+                onchange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  if (file) void importPluginFile(file);
+                  event.currentTarget.value = "";
+                }}
+              />
+              <button
+                type="button"
+                class="btn btn-secondary"
+                onclick={() => pluginFileInput?.click()}
+              >
+                Import a Plugin…
+              </button>
+            </div>
+
+            {#if pluginNotice}
+              <p class="mt-3 text-meta text-mute">{pluginNotice}</p>
+            {/if}
+            {#if pluginProblem}
+              <p class="mt-3 flex items-start gap-2 text-meta text-body" data-part="error">
+                <Icon name="warning" class="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+                <span>It runs nowhere on this machine: {pluginProblem}.</span>
+              </p>
+            {/if}
+            {#if pluginError}
+              <p class="mt-3 text-meta text-danger" data-part="error">{pluginError}</p>
+            {/if}
+
+            {#if plugins.length > 0}
+              <ul class="mt-4 space-y-1">
+                {#each plugins as plugin (plugin.name)}
+                  <li class="flex items-start justify-between gap-3 text-base text-body">
+                    <span class="flex items-start gap-2">
+                      {#if plugin.problem}
+                        <Icon name="warning" class="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+                      {/if}
+                      <span>
+                        {plugin.name}
+                        <span class="text-meta text-mute">{plugin.version}</span>
+                        {#if plugin.problem}
+                          <span class="block text-meta text-danger">Cannot run here: {plugin.problem}</span>
+                        {/if}
+                      </span>
+                    </span>
+                    <a
+                      class="btn btn-ghost px-2 text-meta"
+                      href={pluginArchiveHref(plugin.name)}
+                      download={`${plugin.name}.zip`}
+                      aria-label="Download {plugin.name}">Download</a
+                    >
+                  </li>
                 {/each}
               </ul>
             {/if}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
@@ -15,11 +16,11 @@ var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 // contract (CONTEXT.md). It lives as manifest.json inside the plugin
 // folder, and the folder name must match Name.
 type Manifest struct {
-	Name    string           `json:"name"`
-	Version string           `json:"version"`
-	Widgets []ManifestWidget `json:"widgets"`
-	Backend *BackendSpec     `json:"backend,omitempty"`
-	Requires []Requirement   `json:"requires,omitempty"`
+	Name     string           `json:"name"`
+	Version  string           `json:"version"`
+	Widgets  []ManifestWidget `json:"widgets"`
+	Backend  *BackendSpec     `json:"backend,omitempty"`
+	Requires []Requirement    `json:"requires,omitempty"`
 }
 
 // Requirement is something a Plugin needs on the machine to run: a command that
@@ -66,11 +67,8 @@ func LoadManifest(dir string) (Manifest, error) {
 }
 
 func (m *Manifest) validate(folderName string) error {
-	if m.Name == "" {
-		return errors.New("manifest: name is required")
-	}
-	if !namePattern.MatchString(m.Name) {
-		return fmt.Errorf("manifest: name %q must be lowercase letters, digits, and dashes", m.Name)
+	if err := validName(m.Name); err != nil {
+		return err
 	}
 	if m.Name != folderName {
 		return fmt.Errorf("manifest: name %q must match folder name %q", m.Name, folderName)
@@ -108,17 +106,46 @@ func (m *Manifest) validate(folderName string) error {
 	return nil
 }
 
+// validName is the rule for the name a Plugin goes by, which is also the name
+// of its folder. Import applies it before the name reaches the filesystem; a
+// dropped-in folder meets it in validate.
+func validName(name string) error {
+	if name == "" {
+		return errors.New("manifest: name is required")
+	}
+	if !namePattern.MatchString(name) {
+		return fmt.Errorf("manifest: name %q must be lowercase letters, digits, and dashes", name)
+	}
+	return nil
+}
+
 // ModuleFile resolves a widget's module path inside the plugin folder,
 // rejecting paths that escape it.
 func (m *Manifest) ModuleFile(dir string, modulePath string) (string, error) {
-	full := filepath.Join(dir, filepath.FromSlash(modulePath))
-	rel, err := filepath.Rel(dir, full)
-	if err != nil || rel == ".." || filepath.IsAbs(rel) || hasParentPrefix(rel) {
+	file, ok := insideFolder(dir, modulePath)
+	if !ok {
 		return "", fmt.Errorf("module path %q escapes the plugin folder", modulePath)
 	}
-	return full, nil
+	return file, nil
 }
 
+// insideFolder resolves a folder-relative path and reports whether it landed
+// inside. Both a widget's module path and an archive entry come through here:
+// a ZIP is a folder from a stranger, and this is the one guard that decides
+// where a stranger's path may point.
+func insideFolder(folder, relative string) (string, bool) {
+	full := filepath.Join(folder, filepath.FromSlash(relative))
+	within, err := filepath.Rel(folder, full)
+	if err != nil || filepath.IsAbs(within) || hasParentPrefix(within) {
+		return "", false
+	}
+	return full, true
+}
+
+// hasParentPrefix reports whether a relative path starts by climbing out of
+// the folder it is measured from. It is handed slash-separated paths on every
+// platform, so a Windows build catches what a Linux one would.
 func hasParentPrefix(rel string) bool {
-	return rel == ".." || len(rel) >= 3 && rel[:3] == ".."+string(filepath.Separator)
+	rel = filepath.ToSlash(rel)
+	return rel == ".." || strings.HasPrefix(rel, "../")
 }

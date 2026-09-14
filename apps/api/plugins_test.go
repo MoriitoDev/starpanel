@@ -27,6 +27,14 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 
 func newTestServerWithPlugins(t *testing.T, filesByFolder map[string]map[string]string) *httptest.Server {
 	t.Helper()
+	server, _ := newPluginServer(t, filesByFolder)
+	return server
+}
+
+// newPluginServer hands back the plugins folder too, because what an import
+// leaves behind is as much a part of its behaviour as what it answers.
+func newPluginServer(t *testing.T, filesByFolder map[string]map[string]string) (*httptest.Server, string) {
+	t.Helper()
 	pluginsDir := t.TempDir()
 	for folder, files := range filesByFolder {
 		writeFiles(t, filepath.Join(pluginsDir, folder), files)
@@ -44,7 +52,7 @@ func newTestServerWithPlugins(t *testing.T, filesByFolder map[string]map[string]
 		backends: backends,
 		themes:   newThemeStore(t),
 		web:      testDashboardFS(),
-	}))
+	})), pluginsDir
 }
 
 func TestPluginListingShowsValidAndReportsInvalid(t *testing.T) {
@@ -127,6 +135,11 @@ func TestPluginModuleServing(t *testing.T) {
 	}
 	if ct := res.Header.Get("Content-Type"); !strings.Contains(ct, "text/javascript") {
 		t.Errorf("content type = %q, want text/javascript", ct)
+	}
+	// A replaced module has to reach the browser on its own: no directive here
+	// means the browser is free to keep serving the module it already has.
+	if cache := res.Header.Get("Cache-Control"); !strings.Contains(cache, "no-cache") {
+		t.Errorf("cache control = %q, want no-cache", cache)
 	}
 	buf := make([]byte, 128)
 	n, _ := res.Body.Read(buf)

@@ -8,9 +8,7 @@ import (
 	"strings"
 )
 
-// Registry discovers Plugins by folder drop under the plugins directory. Every
-// call re-reads the folder, so dropping one in is picked up by the next
-// request rather than needing a restart.
+// Registry manages plugin discovery from the filesystem on demand.
 type Registry struct {
 	dir string
 }
@@ -19,9 +17,7 @@ func NewRegistry(dir string) *Registry {
 	return &Registry{dir: dir}
 }
 
-// Entry is one discovered folder: either a valid Plugin or the reason it was
-// rejected. An invalid folder never breaks the listing; the owner needs to
-// know why their Plugin is missing from the panel.
+// Entry represents a discovered plugin directory and its status.
 type Entry struct {
 	Folder   string
 	Dir      string
@@ -29,11 +25,7 @@ type Entry struct {
 	Err      error
 }
 
-// Missing reports the requirements this Plugin declares that are not reachable
-// from where it sits, so the panel can say what is wrong before a Widget fails
-// with a timeout. A bare name is looked up in the PATH; a path with a separator
-// in it — ./backend — is looked for inside the Plugin's own folder, which is
-// where its working directory points.
+// Missing returns declared requirements that are not found in PATH or the plugin folder.
 func (e Entry) Missing() []Requirement {
 	var missing []Requirement
 	for _, required := range e.Manifest.Requires {
@@ -53,8 +45,7 @@ func reachable(command, dir string) bool {
 	return err == nil
 }
 
-// Discover scans the plugins directory, oldest name first as the filesystem
-// reports it.
+// Discover scans the plugins directory and loads all entries.
 func (r *Registry) Discover() []Entry {
 	entries, err := os.ReadDir(r.dir)
 	if err != nil {
@@ -80,7 +71,7 @@ func (r *Registry) Discover() []Entry {
 	return found
 }
 
-// Find returns the Entry for one folder name.
+// Find returns the entry matching the given folder name.
 func (r *Registry) Find(name string) (Entry, bool) {
 	for _, entry := range r.Discover() {
 		if entry.Folder == name {

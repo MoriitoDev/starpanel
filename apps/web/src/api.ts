@@ -1,4 +1,4 @@
-import type { Dashboard, PluginList, ThemeInfo, ThemeList } from "./types";
+import type { Dashboard, PluginInfo, PluginList, ThemeInfo, ThemeList } from "./types";
 
 async function parse<T>(res: Response): Promise<T> {
   const body = await res.json();
@@ -23,6 +23,20 @@ export function saveDashboard(dashboard: Dashboard): Promise<Dashboard> {
 
 export function fetchPlugins(): Promise<PluginList> {
   return fetch("/api/v1/plugins").then((res) => parse<PluginList>(res));
+}
+
+/** A Plugin arrives as a ZIP of its folder; the name comes from its Manifest. */
+export function importPlugin(archive: Blob): Promise<PluginInfo> {
+  return fetch("/api/v1/plugins", {
+    method: "POST",
+    headers: { "Content-Type": "application/zip" },
+    body: archive
+  }).then((res) => parse<PluginInfo>(res));
+}
+
+/** Where the browser fetches a Plugin's folder archive from, for a download. */
+export function pluginArchiveHref(name: string): string {
+  return `/api/v1/plugins/${encodeURIComponent(name)}/archive`;
 }
 
 export function fetchThemes(): Promise<ThemeList> {

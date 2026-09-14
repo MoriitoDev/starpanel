@@ -88,4 +88,18 @@ value.style.cssText =
 
 ## Publishing one
 
-There is no registry: a Plugin is a folder, and installing it means copying it into `plugins/` on the machine running Star Panel and picking it in the panel's edit mode. Publish yours as a repository with the folder inside and a README that says what it needs — `requires` says it too.
+There is no registry: a Plugin is a folder. Publish yours as a repository with the folder inside, or as a ZIP of it, and a README that says what it needs — `requires` says it too.
+
+## Installing, and taking one out
+
+The short road is the folder itself: copy it into `plugins/` on the machine running Star Panel, and the panel picks it up on its next look — no restart, no refresh. Deleting the folder uninstalls it.
+
+In edit mode, **Import a Plugin…** takes a ZIP instead, for when the panel is not where your hands are. Zip the folder, or zip its contents; both arrive at the same Plugin, because the Manifest inside decides which. The archive is unpacked into `plugins/` under the name its Manifest declares, and every step is checked on the way:
+
+- A Manifest that does not parse, a widget with no module, a path that climbs out of the folder, or a name already in `plugins/` leaves **nothing** behind — not a half-written folder, and not the archive, which is never written to disk.
+- An existing Plugin is never overwritten: the import is refused and the message names the folder in the way. Deleting the old one is your move.
+- A `requires` this machine cannot satisfy is reported in the answer to the import, before anyone adds the Widget.
+
+**Download** next to a Plugin in that section saves its folder as a ZIP, the same shape an import takes back — handy for moving one between machines.
+
+Importing a Plugin is importing code: its widgets run in the page and its backend runs with the panel's privileges, and Star Panel has no login ([ADR-0001](adr/0001-single-user-no-auth.md)). Anyone who can reach the port can install one, so keep the panel on a network you trust ([ADR-0007](adr/0007-plugin-import-is-an-upload-of-code.md)).

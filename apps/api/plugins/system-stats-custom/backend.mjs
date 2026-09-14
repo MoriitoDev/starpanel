@@ -10,7 +10,7 @@ const port = Number(process.env.STAR_PANEL_PORT ?? "{port}");
 const plugin = process.env.STAR_PANEL_PLUGIN ?? "system-stats";
 
 // ------------------- CPU -------------------
-function sampleCpu(ms = 1000) {
+function sampleCpu(ms = 120) {
     return new Promise((resolve) => {
         const start = os.cpus();
         setTimeout(() => {

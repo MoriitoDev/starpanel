@@ -104,7 +104,7 @@ The default scale, used from this set only: 4, 8, 12, 16, 20, 24, 32, 48, 64. Ca
 
 **Card.** `surface`, 1px `border`, `radius-md`, 20px padding, 16px between the title block and the body. Title in `subheading`/`ink`, metadata in `meta`/`mute`. In view mode a card shows a title, its body and at most one muted metadata line. Nothing else.
 
-**Edit mode.** Toggled from the header, where `Edit` becomes a filled `Done`. Edit mode adds to each card a control cluster at the top end (remove), an `enabled` switch, and move controls at the bottom end; it also reveals the add-widget select and a Themes section that imports, deletes with a confirmation and downloads the active Theme. Each change persists as it is made, as today.
+**Edit mode.** Toggled from the header, where `Edit` becomes a filled `Done`. Edit mode adds to each card a control cluster at the top end (remove), an `enabled` switch, and move controls at the bottom end; it also reveals the add-widget select, a Themes section that imports, deletes with a confirmation and downloads the active Theme, and a Plugins section that imports a ZIP of a Plugin's folder and downloads any Plugin already there. Each change persists as it is made, as today.
 
 **Buttons.** Primary: `accent` background, `on-accent` text, `radius-sm`, 36px tall, 14px horizontal padding, weight 500, `accent-press` while pressed. Secondary: `surface` + 1px `border` + `ink`. Ghost: transparent + `mute`, no border. Disabled per the Rules.
 
@@ -118,7 +118,7 @@ The default scale, used from this set only: 4, 8, 12, 16, 20, 24, 32, 48, 64. Ca
 
 **Widget failure.** A widget that cannot load or poll shows one `meta` line in `danger` inside its card: `Widget failed: <reason>`. The card stays and the panel keeps working (ADR-0003).
 
-**Unavailable Plugin.** A Plugin whose `requires` are not met is listed in edit mode under its own heading, with a Phosphor warning icon in `danger` and the reason behind a disclosure. The panel never installs anything: it says what is missing, and `docs/PLUGINS.md` says what to do about it.
+**Plugins section.** Edit mode lists every Plugin by name and version, each with a Download control, and a control that imports one from a ZIP of its folder. The import says what it is before the file picker is reached: what arrives is code the panel will run, and the panel has no login ([ADR-0007](./docs/adr/0007-plugin-import-is-an-upload-of-code.md)). A Plugin whose `requires` are not met carries the Phosphor warning icon in `danger` on its row, with the reason in `danger` meta text underneath, and an import of one says the same thing in its answer. The panel never installs anything: it says what is missing, and `docs/PLUGINS.md` says what to do about it.
 
 **Icons.** They come from [Phosphor](https://phosphoricons.com/) and are inlined in `apps/web/src/lib/Icon.svelte` rather than fetched, so the panel works offline and ships no icon runtime. Copy the path from the site when you need another one; never load an icon from a CDN. The identity mark is the one exception — it is ours, and it lives in `StarMark.svelte`.
 

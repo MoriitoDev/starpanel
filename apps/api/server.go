@@ -36,6 +36,8 @@ func newServer(deps serverDeps) http.Handler {
 	mux.HandleFunc("GET /api/v1/dashboard", getDashboardHandler(deps.store))
 	mux.HandleFunc("PUT /api/v1/dashboard", saveDashboardHandler(deps.store))
 	mux.HandleFunc("GET /api/v1/plugins", listPluginsHandler(deps.registry))
+	mux.HandleFunc("POST /api/v1/plugins", importPluginHandler(deps.registry))
+	mux.HandleFunc("GET /api/v1/plugins/{name}/archive", pluginArchiveHandler(deps.registry))
 	mux.HandleFunc("GET /api/v1/plugins/{name}/modules/{rest...}", pluginModuleHandler(deps.registry))
 	mux.HandleFunc("/api/v1/plugins/{name}/proxy/{rest...}", proxyHandler(deps.backends))
 	mux.HandleFunc("GET /api/v1/themes", listThemesHandler(deps))
@@ -282,25 +284,90 @@ func listPluginsHandler(registry *plugins.Registry) http.HandlerFunc {
 				})
 				continue
 			}
-			info := PluginInfo{
-				Name:    entry.Manifest.Name,
-				Version: entry.Manifest.Version,
-				Widgets: []PluginWidgetInfo{},
-				Backend: entry.Manifest.Backend != nil,
-			}
-			for _, widget := range entry.Manifest.Widgets {
-				info.Widgets = append(info.Widgets, PluginWidgetInfo{
-					ID:     widget.ID,
-					Title:  widget.Title,
-					Module: moduleURL(entry.Manifest.Name, widget.Module),
-				})
-			}
-			if missing := entry.Missing(); len(missing) > 0 {
-				info.Problem = requirementProblem(missing)
-			}
-			list.Plugins = append(list.Plugins, info)
+			list.Plugins = append(list.Plugins, pluginInfo(entry))
 		}
 		writeJSON(w, http.StatusOK, list)
+	}
+}
+
+// pluginInfo is one Plugin as the panel reads it. The listing and an import
+// both answer with this, so a Plugin says the same thing about itself however
+// it arrived.
+func pluginInfo(entry plugins.Entry) PluginInfo {
+	info := PluginInfo{
+		Name:    entry.Manifest.Name,
+		Version: entry.Manifest.Version,
+		Widgets: []PluginWidgetInfo{},
+		Backend: entry.Manifest.Backend != nil,
+	}
+	for _, widget := range entry.Manifest.Widgets {
+		info.Widgets = append(info.Widgets, PluginWidgetInfo{
+			ID:     widget.ID,
+			Title:  widget.Title,
+			Module: moduleURL(entry.Manifest.Name, widget.Module),
+		})
+	}
+	if missing := entry.Missing(); len(missing) > 0 {
+		info.Problem = requirementProblem(missing)
+	}
+	return info
+}
+
+// maxPluginArchiveBytes caps an import. A Plugin folder may carry a compiled
+// binary — that is the author's business, and docs/PLUGINS.md says so — which
+// is why this is larger than the stylesheet a Theme arrives as, and still a
+// number this process is willing to hold.
+const maxPluginArchiveBytes = 32 << 20
+
+// importPluginHandler takes a Plugin as a ZIP. A Theme is one file and arrives
+// as a request body; a Plugin is a folder, so it arrives as an archive — but
+// the shape of the exchange is the same one, and the name comes from inside
+// the artefact either way.
+func importPluginHandler(registry *plugins.Registry) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		archive, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxPluginArchiveBytes))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "the plugin archive is too large to import",
+			})
+			return
+		}
+		// Unpacking, validating and moving into place all happen behind the
+		// Plugins module; the transport only decides which failure is which.
+		entry, err := registry.Import(archive)
+		switch {
+		case errors.Is(err, plugins.ErrExists):
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		case err != nil:
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		default:
+			writeJSON(w, http.StatusCreated, pluginInfo(entry))
+		}
+	}
+}
+
+// pluginArchiveHandler answers with a Plugin's folder as a ZIP, which the
+// panel's download button saves and an import takes back.
+func pluginArchiveHandler(registry *plugins.Registry) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		entry, ok := registry.Find(name)
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "plugin not found: " + name})
+			return
+		}
+		if entry.Err != nil {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": entry.Err.Error()})
+			return
+		}
+		archive, err := entry.Archive()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+entry.Folder+`.zip"`)
+		_, _ = w.Write(archive)
 	}
 }
 
@@ -350,6 +417,12 @@ func pluginModuleHandler(registry *plugins.Registry) http.HandlerFunc {
 		if contentType := moduleContentType(file); contentType != "" {
 			w.Header().Set("Content-Type", contentType)
 		}
+		// Files behind this URL are replaceable — an owner re-imports a Plugin
+		// over the folder it was unzipped from — so the browser is told to ask
+		// again rather than keep the copy it has. ServeContent answers the
+		// question with a 304 while the file is untouched, so the cost of
+		// asking is what it should be.
+		w.Header().Set("Cache-Control", "no-cache")
 		info, err := opened.Stat()
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "stat module file"})
