@@ -57,6 +57,7 @@ func (s *Store) load() (Dashboard, error) {
 	if err := d.validate(); err != nil {
 		return Dashboard{}, fmt.Errorf("%s is not a valid Dashboard: %w", s.path, err)
 	}
+	d.forgetRetiredFields()
 	return d, nil
 }
 
@@ -69,6 +70,7 @@ func (s *Store) Save(d Dashboard) (Dashboard, error) {
 	if err := d.validate(); err != nil {
 		return Dashboard{}, &InvalidError{Err: err}
 	}
+	d.forgetRetiredFields()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	raw, err := json.MarshalIndent(d, "", "  ")

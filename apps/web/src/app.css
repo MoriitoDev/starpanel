@@ -37,6 +37,9 @@
   --success: #2e9e68;
   --focus-ring: rgba(79, 107, 255, .45);
   --popover-shadow: 0 8px 24px rgb(0 0 0 / .10);
+  /* The grid's unit (DESIGN.md §2): a Widget's height is its rows times this,
+     and that height is a minimum — a card grows rather than clipping. */
+  --row-height: 120px;
   color-scheme: light;
 }
 
@@ -172,6 +175,189 @@ body {
     background: var(--surface);
     color: var(--ink);
     font-size: var(--text-base);
+  }
+
+  /* The Dashboard's grid (DESIGN.md §6): a Widget is `w` columns wide — twelve
+     of them on a wide screen, six on a tablet, one on a phone — and `h` rows
+     tall. The breakpoints here are the ones layout.ts reasons about, and the
+     stored height is a minimum, so a card whose content needs more room grows.
+     Below 640px neither the width nor the height of a card is its own. */
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    /* Each card keeps its own height: a row is as tall as its tallest card, and
+       the shorter one leaves the difference empty instead of borrowing it. A
+       Span is one card's size, so stretching a neighbour to match would make
+       the drawing disagree with the document. */
+    align-items: start;
+    /* The gap is a variable because the resize edges reach across it: an edge
+       has to be grabbable from the boundary the owner can see, not only from
+       the 1px border they cannot. */
+    --grid-gap: 16px;
+    gap: var(--grid-gap);
+  }
+  @media (min-width: 640px) {
+    .dashboard-grid {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+  }
+  @media (min-width: 1024px) {
+    .dashboard-grid {
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      --grid-gap: 24px;
+    }
+  }
+  .span-w-1,
+  .span-w-2,
+  .span-w-3,
+  .span-w-4,
+  .span-w-5,
+  .span-w-6,
+  .span-w-7,
+  .span-w-8,
+  .span-w-9,
+  .span-w-10,
+  .span-w-11,
+  .span-w-12 {
+    grid-column: span 1;
+  }
+  @media (min-width: 640px) {
+    .span-w-1,
+    .span-w-2,
+    .span-w-3,
+    .span-w-4,
+    .span-w-5,
+    .span-w-6 {
+      grid-column: span 3;
+    }
+    .span-w-7,
+    .span-w-8,
+    .span-w-9,
+    .span-w-10,
+    .span-w-11,
+    .span-w-12 {
+      grid-column: span 6;
+    }
+    .span-h-1 { min-height: calc(var(--row-height) * 1); }
+    .span-h-2 { min-height: calc(var(--row-height) * 2); }
+    .span-h-3 { min-height: calc(var(--row-height) * 3); }
+    .span-h-4 { min-height: calc(var(--row-height) * 4); }
+    .span-h-5 { min-height: calc(var(--row-height) * 5); }
+    .span-h-6 { min-height: calc(var(--row-height) * 6); }
+    .span-h-7 { min-height: calc(var(--row-height) * 7); }
+    .span-h-8 { min-height: calc(var(--row-height) * 8); }
+    .span-h-9 { min-height: calc(var(--row-height) * 9); }
+    .span-h-10 { min-height: calc(var(--row-height) * 10); }
+    .span-h-11 { min-height: calc(var(--row-height) * 11); }
+    .span-h-12 { min-height: calc(var(--row-height) * 12); }
+    /* The card carries the same floor as the cell it sits in: an item that only
+       has a min-height cannot hand a height down to a child, and a card that
+       ignored its Span would make "height" mean nothing. */
+    .dashboard-grid > li > [data-part="card"] {
+      min-height: inherit;
+    }
+  }
+  @media (min-width: 1024px) {
+    .span-w-1 { grid-column: span 1; }
+    .span-w-2 { grid-column: span 2; }
+    .span-w-3 { grid-column: span 3; }
+    .span-w-4 { grid-column: span 4; }
+    .span-w-5 { grid-column: span 5; }
+    .span-w-6 { grid-column: span 6; }
+    .span-w-7 { grid-column: span 7; }
+    .span-w-8 { grid-column: span 8; }
+    .span-w-9 { grid-column: span 9; }
+    .span-w-10 { grid-column: span 10; }
+    .span-w-11 { grid-column: span 11; }
+    .span-w-12 { grid-column: span 12; }
+  }
+
+  /* Arranging a card (DESIGN.md §4). The card under the pointer carries the
+     one shadow the system allows outside a popover, and the place it will land
+     is drawn as a dashed outline of the same size. The id is the drag
+     library's, and it is applied to the element being dragged. */
+  #dnd-action-dragged-el [data-part="card"] {
+    box-shadow: var(--popover-shadow);
+  }
+  .card-placeholder {
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface-soft);
+  }
+  .card-handle {
+    cursor: grab;
+    touch-action: none;
+  }
+  .card-handle:active {
+    cursor: grabbing;
+  }
+
+  /* Resizing a card (DESIGN.md §4). A mouse takes the edges themselves: the
+     right edge is the width, the bottom edge the height, and the corner both.
+     A coarse pointer gets the drawn handle instead, because an edge it cannot
+     see is no affordance at all, and neither is offered below 640px, where
+     there is only one column to fill. Each strip straddles the border — an
+     absolutely positioned box is measured from the padding box, so a strip
+     flush with the inside would leave the border itself a dead zone — and
+     reaches across the gap to the neighbouring card, because that band is what
+     the owner reads as "the edge". */
+  .card-edge {
+    position: absolute;
+    display: none;
+    touch-action: none;
+  }
+  @media (min-width: 640px) and (pointer: fine) {
+    .card-edge {
+      display: block;
+    }
+    .card-edge-right {
+      inset-block: 0;
+      inset-inline-end: calc(-1 * (var(--grid-gap) + 1px));
+      width: calc(var(--grid-gap) + 13px);
+      cursor: ew-resize;
+    }
+    .card-edge-bottom {
+      inset-inline: 0;
+      inset-block-end: calc(-1 * (var(--grid-gap) + 1px));
+      height: calc(var(--grid-gap) + 13px);
+      cursor: ns-resize;
+    }
+    .card-edge-corner {
+      inset-block-end: calc(-1 * (var(--grid-gap) + 1px));
+      inset-inline-end: calc(-1 * (var(--grid-gap) + 1px));
+      width: calc(var(--grid-gap) + 17px);
+      height: calc(var(--grid-gap) + 17px);
+      cursor: nwse-resize;
+    }
+    /* The drawn handle is the mouse's cue for where an edge can be grabbed: it
+       appears with the card it belongs to, and stays out of the way otherwise. */
+    .dashboard-grid li:hover .card-resize,
+    .card-resize:focus-visible {
+      display: inline-flex;
+    }
+  }
+  .card-resize {
+    display: none;
+    cursor: nwse-resize;
+    touch-action: none;
+  }
+  @media (min-width: 640px) and (pointer: coarse) {
+    .card-resize {
+      display: inline-flex;
+    }
+  }
+  /* Where the next card lands: the same frame as a card, without one. */
+  .card-add {
+    width: 100%;
+    height: auto;
+    padding-block: 12px;
+    border: 1px dashed var(--border);
+    color: var(--mute);
+    font-weight: 500;
+  }
+  .card-add:hover:not(:disabled) {
+    background: var(--surface-soft);
+    color: var(--ink);
   }
   @media (pointer: coarse) {
     .btn,

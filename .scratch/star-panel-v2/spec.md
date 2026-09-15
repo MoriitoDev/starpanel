@@ -30,7 +30,7 @@ Write the design system down and make it executable. `DESIGN.md` becomes normati
 - Geist Sans variable, self-hosted under `apps/web/public/fonts/`, latin subset, OFL. No font CDN: the panel stays fully offline.
 - Identity is a four-point star as inline SVG, reused as the favicon; the only logo asset.
 - UI copy becomes English throughout, including the strings inside the bundled widgets.
-- Widget sizes stay `small` / `medium` / `large` on a 12/6/1 column grid; no drag grid.
+- Widget sizes stay `small` / `medium` / `large` on a 12/6/1 column grid; no drag grid. (Superseded: [ADR-0008](../../docs/adr/0008-layout-is-an-ordered-grid.md) replaced the three sizes with Spans and the drag grid exists.)
 - Edit mode is explicit (a header toggle) rather than hover-revealed controls, so it works on touch.
 
 ## Testing Decisions
@@ -45,7 +45,7 @@ Write the design system down and make it executable. `DESIGN.md` becomes normati
 
 - A UI for editing the Palette; the Theme stays editable through JSON and the API.
 - `docs/PLUGINS.md` as a full authoring guide (Manifest, backend, subprocess); v2 documents the styling contract only.
-- Drag-and-drop layout, per-device layouts, or a free 12-column span model.
+- Drag-and-drop layout, per-device layouts, or a free 12-column span model. (The first is now in scope, without free coordinates, per [ADR-0008](../../docs/adr/0008-layout-is-an-ordered-grid.md).)
 - Internationalisation or any copy beyond English.
 - The single-binary embed (v1 ticket 06); the font lands under `apps/web/public/` so that ticket inherits it.
 - New Plugins or Widgets, history, graphs, or any database.

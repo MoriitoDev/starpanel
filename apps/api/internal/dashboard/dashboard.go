@@ -12,13 +12,48 @@ const DefaultPollSeconds = 10
 // Widget optionally names which of the plugin's widgets this entry renders
 // (the plugin's first widget when empty).
 type Widget struct {
-	ID          string          `json:"id"`
-	Plugin      string          `json:"plugin"`
-	Widget      string          `json:"widget,omitempty"`
-	Size        string          `json:"size"`
+	ID     string `json:"id"`
+	Plugin string `json:"plugin"`
+	Widget string `json:"widget,omitempty"`
+	Span
 	Enabled     bool            `json:"enabled"`
 	PollSeconds int             `json:"pollSeconds"`
 	Config      json.RawMessage `json:"config,omitempty"`
+
+	// Size is what a Widget declared before Spans (ADR-0008). It is read for
+	// two reasons — a document written by an older panel still has to load,
+	// and a client that keeps sending it has to be told what to send instead —
+	// and it is never written back out.
+	Size string `json:"size,omitempty"`
+}
+
+// Span is how much of the grid a Widget fills: columns wide and rows tall
+// (CONTEXT.md). It is embedded, so a document carries `w` and `h` beside the
+// Widget's other fields, and the bounds travel with the numbers they bound.
+type Span struct {
+	W int `json:"w"`
+	H int `json:"h"`
+}
+
+// A Widget fills between one and twelve of the grid's columns, and between one
+// and twelve rows (DESIGN.md §6). Outside that there is no grid left to fill.
+const (
+	MinSpan = 1
+	MaxSpan = 12
+)
+
+func (s Span) valid() bool {
+	return within(s.W) && within(s.H)
+}
+
+func within(n int) bool { return n >= MinSpan && n <= MaxSpan }
+
+// legacySpans is what the three sizes a Widget used to declare became: four,
+// six and twelve of a twelve-column grid, one row tall (ADR-0008).
+var legacySpans = map[string]Span{
+	"small":  {W: 4, H: 1},
+	"medium": {W: 6, H: 1},
+	"large":  {W: 12, H: 1},
 }
 
 // DefaultTheme is the Theme every Dashboard starts on: the baseline stylesheet
@@ -44,10 +79,13 @@ func (t *ThemeName) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// migrate upgrades older documents. Palettes saved with the v1 token set are
+// migrate upgrades older documents: palettes saved with the v1 token set are
 // replaced by the DESIGN.md defaults rather than carrying their colours over,
-// and placeholder "sample" widgets become hello-widget instances. It belongs
-// to the store, the only thing that reads documents off disk.
+// placeholder "sample" widgets become hello-widget instances, and a Widget
+// that still declares one of the three old sizes gets the Span those became
+// (ADR-0008). It belongs to the store, the only thing that reads documents off
+// disk — which is also why a document that arrives over the API is never
+// migrated: a client that sends a size is answered, not corrected.
 func (d *Dashboard) migrate() {
 	if d.Theme == "" {
 		d.Theme = DefaultTheme
@@ -65,15 +103,22 @@ func (d *Dashboard) migrate() {
 			}
 		}
 	}
+	for i := range d.Widgets {
+		w := &d.Widgets[i]
+		if w.Size == "" || w.Span.valid() {
+			continue
+		}
+		if span, ok := legacySpans[w.Size]; ok {
+			w.Span = span
+		}
+	}
 }
 
 // Dashboard is the user's configured set of widgets in an ordered list.
 type Dashboard struct {
-	Widgets []Widget `json:"widgets"`
+	Widgets []Widget  `json:"widgets"`
 	Theme   ThemeName `json:"theme"`
 }
-
-var validSizes = map[string]bool{"small": true, "medium": true, "large": true}
 
 // DefaultDashboard seeds a fresh panel with base monitoring plus hello
 // entries so the panel is useful out of the box via the bundled plugins.
@@ -84,7 +129,7 @@ func DefaultDashboard() Dashboard {
 				ID:          "stats-1",
 				Plugin:      "system-stats",
 				Widget:      "system-stats",
-				Size:        "medium",
+				Span:        Span{W: 6, H: 1},
 				Enabled:     true,
 				PollSeconds: DefaultPollSeconds,
 			},
@@ -92,7 +137,7 @@ func DefaultDashboard() Dashboard {
 				ID:          "hello-1",
 				Plugin:      "hello-widget",
 				Widget:      "hello",
-				Size:        "medium",
+				Span:        Span{W: 6, H: 1},
 				Enabled:     true,
 				PollSeconds: DefaultPollSeconds,
 				Config:      json.RawMessage(`{"message":"Hello from your first Plugin!"}`),
@@ -101,13 +146,21 @@ func DefaultDashboard() Dashboard {
 				ID:          "hello-2",
 				Plugin:      "hello-widget",
 				Widget:      "hello",
-				Size:        "small",
+				Span:        Span{W: 4, H: 1},
 				Enabled:     false,
 				PollSeconds: DefaultPollSeconds,
 				Config:      json.RawMessage(`{"message":"Disabled sample — toggle me"}`),
 			},
 		},
 		Theme: DefaultTheme,
+	}
+}
+
+// forgetRetiredFields drops what the document no longer carries, so neither a
+// stored document nor an answer to a caller ever advertises a size again.
+func (d *Dashboard) forgetRetiredFields() {
+	for i := range d.Widgets {
+		d.Widgets[i].Size = ""
 	}
 }
 
@@ -136,8 +189,8 @@ func (d *Dashboard) validate() error {
 		if w.Plugin == "" {
 			return fmt.Errorf("widget %q: plugin is required", w.ID)
 		}
-		if !validSizes[w.Size] {
-			return fmt.Errorf("widget %q: size must be small, medium, or large", w.ID)
+		if !w.Span.valid() {
+			return spanError(w)
 		}
 		if w.PollSeconds <= 0 {
 			return fmt.Errorf("widget %q: pollSeconds must be positive", w.ID)
@@ -147,4 +200,19 @@ func (d *Dashboard) validate() error {
 		}
 	}
 	return nil
+}
+
+// spanError names the side of the Span that is out of range, and — when the
+// Widget still carries the size Spans replaced — says what to send instead,
+// because that is the shape of a client that has not heard of Spans (ADR-0008).
+func spanError(w Widget) error {
+	if w.Size != "" {
+		return fmt.Errorf(
+			"widget %q: a Dashboard has no size any more; send w and h (each between %d and %d) instead",
+			w.ID, MinSpan, MaxSpan)
+	}
+	if !within(w.W) {
+		return fmt.Errorf("widget %q: w must be between %d and %d", w.ID, MinSpan, MaxSpan)
+	}
+	return fmt.Errorf("widget %q: h must be between %d and %d", w.ID, MinSpan, MaxSpan)
 }

@@ -1,5 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { flip } from "svelte/animate";
+  import {
+    dragHandle,
+    dragHandleZone,
+    SHADOW_ITEM_MARKER_PROPERTY_NAME
+  } from "svelte-dnd-action";
   import {
     deleteTheme,
     fetchDashboard,
@@ -13,6 +19,13 @@
   } from "./api";
   import StarMark from "./lib/StarMark.svelte";
   import Icon from "./lib/Icon.svelte";
+  import {
+    columnsForWidth,
+    resizeSpan,
+    type GridMetrics,
+    type ResizeAxis,
+    type Span
+  } from "./lib/layout";
   import StatusDot from "./lib/StatusDot.svelte";
   import WidgetCard from "./WidgetCard.svelte";
   import type {
@@ -20,15 +33,25 @@
     PluginError,
     PluginInfo,
     ThemeInfo,
-    Widget,
-    WidgetSize
+    Widget
   } from "./types";
 
   type Health = "checking" | "alive" | "degraded" | "offline";
   type SaveState = "saved" | "saving" | "error";
+  /** A Widget list during a drag also holds the library's placeholder item. */
+  type PlaceholderWidget = Widget & { [SHADOW_ITEM_MARKER_PROPERTY_NAME]?: boolean };
 
   /** How often the shell re-reads the Dashboard; the status popover shows it. */
   const DASHBOARD_POLL_SECONDS = 10;
+
+  /** The flip the cards make as a drag makes room for one of them (§3), which
+      someone who asked for reduced motion does not get. */
+  const flipDurationMs = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ? 0
+    : 140;
+
+  /** The new Span an added Widget starts at: half the grid, one row tall. */
+  const DEFAULT_SPAN: Span = { w: 6, h: 1 };
 
   let health = $state<Health>("checking");
   let dashboard = $state<Dashboard | null>(null);
@@ -48,6 +71,17 @@
   let pluginNotice = $state<string | null>(null);
   // The import itself succeeded; this is what the Plugin cannot find here.
   let pluginProblem = $state<string | null>(null);
+
+  // Arranging (ADR-0008): the grid the cards are drawn in, the Span a card is
+  // being dragged out of, and whether a gesture is in flight — which is what
+  // keeps the 10s refresh from replacing the list under the pointer.
+  let grid = $state<HTMLElement>();
+  let arranging = $state(false);
+  let resizing = $state<{ id: string; from: Span; span: Span } | null>(null);
+  // The grid the browser is showing: below 640px a card fills the only column
+  // there is, so the drag is off and the ↑/↓ controls are the way to move one.
+  let viewportWidth = $state(window.innerWidth);
+  let canArrange = $derived(editing && columnsForWidth(viewportWidth) > 1);
 
   let activeTheme = $derived(dashboard?.theme ?? "default");
   let activeThemeName = $derived(
@@ -154,10 +188,27 @@
     return typeof label === "string" ? label : widget.id;
   }
 
-  function spanFor(size: WidgetSize): string {
-    if (size === "small") return "md:col-span-3 lg:col-span-4";
-    if (size === "large") return "md:col-span-6 lg:col-span-12";
-    return "md:col-span-6 lg:col-span-6";
+  /** The classes a Span becomes; app.css draws the breakpoints (§6). */
+  function spanClasses(span: Span): string {
+    return `span-w-${span.w} span-h-${span.h}`;
+  }
+
+  /** The Span a card is drawn at: the one under the pointer, or the stored one. */
+  function spanOf(widget: Widget): Span {
+    return resizing?.id === widget.id ? resizing.span : { w: widget.w, h: widget.h };
+  }
+
+  /**
+   * The drag library marks the place a card will land with a property on a
+   * stand-in item, and that item is what the dashed placeholder is drawn for.
+   */
+  function isPlaceholder(widget: Widget): boolean {
+    return Boolean((widget as PlaceholderWidget)[SHADOW_ITEM_MARKER_PROPERTY_NAME]);
+  }
+
+  /** The Widgets of a list, with any placeholder left out: what gets stored. */
+  function storedWidgets(widgets: Widget[]): Widget[] {
+    return widgets.filter((widget) => !isPlaceholder(widget));
   }
 
   interface WidgetOption {
@@ -202,13 +253,98 @@
         id,
         plugin: pluginName,
         widget: widgetId,
-        size: "medium",
+        w: DEFAULT_SPAN.w,
+        h: DEFAULT_SPAN.h,
         enabled: true,
         pollSeconds: DASHBOARD_POLL_SECONDS
       } as Widget
     ];
     addSelection = "";
     await persist({ ...dashboard, widgets });
+  }
+
+  /** What the add control says it is about to add, when anything is chosen. */
+  function addLabel(): string {
+    const option = widgetOptions().find((candidate) => candidate.value === addSelection);
+    return option ? `Add ${option.label}` : "Add a Widget";
+  }
+
+  // The drag library answers with the reordered list on every `consider` and
+  // once more on `finalize`: the gesture is the preview, the PUT is the commit
+  // (ADR-0008). Reordering never touches the keys a Widget re-mounts on, so a
+  // card keeps polling while it is being moved.
+  function handleConsider(event: CustomEvent<{ items: Widget[] }>): void {
+    if (!dashboard) return;
+    arranging = true;
+    dashboard = { ...dashboard, widgets: event.detail.items };
+  }
+
+  function handleFinalize(event: CustomEvent<{ items: Widget[] }>): void {
+    arranging = false;
+    if (!dashboard) return;
+    void persist({ ...dashboard, widgets: storedWidgets(event.detail.items) });
+  }
+
+  /** What a resize needs to know about the grid: measured where it is drawn. */
+  function gridMetrics(): GridMetrics {
+    const columns = columnsForWidth(window.innerWidth);
+    const style = grid ? getComputedStyle(grid) : null;
+    const gapPx = style ? parseFloat(style.columnGap) || 0 : 0;
+    const width = grid?.clientWidth ?? 0;
+    const rowHeightPx =
+      parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--row-height")) || 0;
+    return {
+      columns,
+      gapPx,
+      rowHeightPx,
+      columnPx: columns > 0 ? (width - gapPx * (columns - 1)) / columns : 0
+    };
+  }
+
+  /**
+   * A card's edge or corner: the card follows the pointer and the Span is saved
+   * when the gesture ends. A row is a minimum (DESIGN.md §6), so this can grow
+   * a card and never clip one.
+   */
+  function startResize(event: PointerEvent, widget: Widget, axis: ResizeAxis): void {
+    const handle = event.currentTarget as HTMLElement;
+    const metrics = gridMetrics();
+    const from: Span = { w: widget.w, h: widget.h };
+    const originX = event.clientX;
+    const originY = event.clientY;
+
+    handle.setPointerCapture(event.pointerId);
+    arranging = true;
+    resizing = { id: widget.id, from, span: from };
+
+    const move = (moved: PointerEvent) => {
+      const next = {
+        id: widget.id,
+        from,
+        span: resizeSpan(
+          from,
+          { dxPx: moved.clientX - originX, dyPx: moved.clientY - originY },
+          metrics,
+          axis
+        )
+      };
+      resizing = next;
+    };
+    const end = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+      const span = resizing?.id === widget.id ? resizing.span : from;
+      resizing = null;
+      arranging = false;
+      if (!dashboard || (span.w === from.w && span.h === from.h)) return;
+      const widgets = dashboard.widgets.map((w) => (w.id === widget.id ? { ...w, ...span } : w));
+      void persist({ ...dashboard, widgets });
+    };
+
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
   }
 
   async function removeWidget(widget: Widget): Promise<void> {
@@ -279,7 +415,9 @@
     // 10s REST poll, the widget default from the spec. Also picks up
     // newly dropped plugin folders.
     const timer = setInterval(() => {
-      if (saveState === "saving") return;
+      // A gesture in flight owns the list: replacing it now would move the card
+      // out from under the pointer.
+      if (saveState === "saving" || arranging) return;
       fetchDashboard()
         .then((fresh) => (dashboard = fresh))
         .catch(() => {});
@@ -287,8 +425,23 @@
       void refreshThemes();
     }, DASHBOARD_POLL_SECONDS * 1000);
 
+    // A gesture that ends any way at all — a drop, a pointer cancel, a lost
+    // capture — releases the refresh, so a cancelled drag cannot freeze it.
+    const releaseGesture = () => {
+      if (!resizing) arranging = false;
+    };
+    const measure = () => {
+      viewportWidth = window.innerWidth;
+    };
+    window.addEventListener("pointerup", releaseGesture);
+    window.addEventListener("pointercancel", releaseGesture);
+    window.addEventListener("resize", measure);
+
     return () => {
       clearInterval(timer);
+      window.removeEventListener("pointerup", releaseGesture);
+      window.removeEventListener("pointercancel", releaseGesture);
+      window.removeEventListener("resize", measure);
     };
   });
 </script>
@@ -354,12 +507,6 @@
                 </option>
               {/each}
             </select>
-            <button
-              type="button"
-              class="btn btn-primary"
-              disabled={!addSelection}
-              onclick={() => addWidget()}>Add</button
-            >
           </div>
         {/if}
 
@@ -520,15 +667,41 @@
             </p>
           </div>
         {:else}
-          <ul class="grid grid-cols-1 gap-4 md:grid-cols-6 lg:grid-cols-12 lg:gap-6">
+          <ul
+            class="dashboard-grid"
+            bind:this={grid}
+            use:dragHandleZone={{
+              items: dashboard.widgets,
+              flipDurationMs,
+              dragDisabled: !canArrange,
+              delayTouchStart: 150,
+              dropTargetStyle: { outline: "none" }
+            }}
+            onconsider={handleConsider}
+            onfinalize={handleFinalize}
+          >
             {#each dashboard.widgets as w, i (w.id)}
-              <li class={spanFor(w.size)}>
+              <li
+                class={`${spanClasses(spanOf(w))}${isPlaceholder(w) ? " card-placeholder" : ""}`}
+                animate:flip={{ duration: flipDurationMs }}
+              >
+                {#if !isPlaceholder(w)}
                 <section
-                  class="flex h-full flex-col rounded-md border border-border bg-surface p-5"
+                  class="relative flex flex-col rounded-md border border-border bg-surface p-5"
                   aria-labelledby={`widget-${w.id}`}
                   data-part="card"
                 >
                   <div class="flex items-start justify-between gap-3">
+                    {#if editing}
+                      <button
+                        type="button"
+                        class="btn btn-ghost card-handle px-2"
+                        use:dragHandle
+                        aria-label={`Move ${titleFor(w)}`}
+                      >
+                        <Icon name="dots-six-vertical" class="h-4 w-4" />
+                      </button>
+                    {/if}
                     <h2 id={`widget-${w.id}`} class="text-subheading text-ink">{titleFor(w)}</h2>
                     {#if editing}
                       <div class="flex items-center gap-1">
@@ -543,10 +716,12 @@
                         </label>
                         <button
                           type="button"
-                          class="btn btn-ghost px-2 text-meta"
-                          aria-label="Remove {titleFor(w)}"
-                          onclick={() => removeWidget(w)}>Remove</button
+                          class="btn btn-ghost px-2"
+                          aria-label={`Remove ${titleFor(w)}`}
+                          onclick={() => removeWidget(w)}
                         >
+                          <Icon name="x" class="h-4 w-4" />
+                        </button>
                       </div>
                     {/if}
                   </div>
@@ -566,6 +741,7 @@
 
                   {#if editing}
                     <div class="mt-4 flex items-center gap-1">
+                      <div class="flex items-center gap-1 lg:hidden">
                       <button
                         type="button"
                         class="btn btn-secondary px-3"
@@ -580,14 +756,51 @@
                         aria-label="Move {titleFor(w)} down"
                         onclick={() => move(i, 1)}>↓</button
                       >
+                      </div>
+                      
                     </div>
                   {:else}
                     <p class="mt-4 text-meta text-mute">poll {w.pollSeconds}s</p>
                   {/if}
+
+                  <!-- A mouse resizes from the edges themselves: the right edge
+                       is the width, the bottom edge the height, and the corner
+                       both. A coarse pointer gets the drawn handle above, since
+                       an edge it cannot see is no affordance at all. -->
+                  {#if editing}
+                    <span
+                      class="card-edge card-edge-right"
+                      aria-hidden="true"
+                      onpointerdown={(event) => startResize(event, w, "width")}
+                    ></span>
+                    <span
+                      class="card-edge card-edge-bottom"
+                      aria-hidden="true"
+                      onpointerdown={(event) => startResize(event, w, "height")}
+                    ></span>
+                    <span
+                      class="card-edge card-edge-corner"
+                      aria-hidden="true"
+                      onpointerdown={(event) => startResize(event, w, "both")}
+                    ></span>
+                  {/if}
                 </section>
+                {/if}
               </li>
             {/each}
           </ul>
+        {/if}
+
+        <!-- Where the next card lands: the same frame as a card, and the same
+             action as the select above it. -->
+        {#if editing && plugins.length > 0}
+          <button
+            type="button"
+            class="btn card-add"
+            disabled={!addSelection}
+            onclick={() => addWidget()}
+            >+ {addLabel()}</button
+          >
         {/if}
 
         {#if saveState === "error"}

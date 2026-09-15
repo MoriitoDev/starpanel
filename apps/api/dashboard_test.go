@@ -79,10 +79,13 @@ func TestDashboardGetReturnsDefaultShape(t *testing.T) {
 		t.Fatalf("widgets missing or empty: %v", body["widgets"])
 	}
 	first, _ := widgets[0].(map[string]any)
-	for _, key := range []string{"id", "plugin", "size", "enabled", "pollSeconds"} {
+	for _, key := range []string{"id", "plugin", "w", "h", "enabled", "pollSeconds"} {
 		if _, present := first[key]; !present {
 			t.Errorf("widget missing key %q", key)
 		}
+	}
+	if _, present := first["size"]; present {
+		t.Errorf("a Widget still advertises the retired size: %v", first)
 	}
 }
 
@@ -92,10 +95,10 @@ func TestDashboardSaveGetRoundTrip(t *testing.T) {
 
 	saved := dashboard.Dashboard{
 		Widgets: []dashboard.Widget{
-			{ID: "clock", Plugin: "sysmon", Size: "large", Enabled: true, Config: json.RawMessage(`{"tz":"UTC"}`)},
-			{ID: "notes", Plugin: "sysmon", Size: "small", Enabled: false},
+			{ID: "clock", Plugin: "sysmon", Span: dashboard.Span{W: 12, H: 2}, Enabled: true, Config: json.RawMessage(`{"tz":"UTC"}`)},
+			{ID: "notes", Plugin: "sysmon", Span: dashboard.Span{W: 4, H: 1}, Enabled: false},
 		},
-		Theme:   "default",
+		Theme: "default",
 	}
 	res, _ := doJSON(t, ts, http.MethodPut, "/api/v1/dashboard", saved)
 	if res.StatusCode != http.StatusOK {
@@ -129,16 +132,19 @@ func TestDashboardSaveRejectsInvalidDocuments(t *testing.T) {
 
 	cases := map[string]dashboard.Dashboard{
 		"empty widget id": {
-			Widgets: []dashboard.Widget{{ID: "", Plugin: "sysmon", Size: "small", Enabled: true}},
+			Widgets: []dashboard.Widget{{ID: "", Plugin: "sysmon", Span: dashboard.Span{W: 4, H: 1}, Enabled: true}},
 		},
 		"duplicate widget ids": {
 			Widgets: []dashboard.Widget{
-				{ID: "a", Plugin: "sysmon", Size: "small", Enabled: true},
-				{ID: "a", Plugin: "sysmon", Size: "small", Enabled: true},
+				{ID: "a", Plugin: "sysmon", Span: dashboard.Span{W: 4, H: 1}, Enabled: true},
+				{ID: "a", Plugin: "sysmon", Span: dashboard.Span{W: 4, H: 1}, Enabled: true},
 			},
 		},
-		"bad size": {
-			Widgets: []dashboard.Widget{{ID: "a", Plugin: "sysmon", Size: "huge", Enabled: true}},
+		"wider than the grid": {
+			Widgets: []dashboard.Widget{{ID: "a", Plugin: "sysmon", Span: dashboard.Span{W: 13, H: 1}, Enabled: true}},
+		},
+		"no rows": {
+			Widgets: []dashboard.Widget{{ID: "a", Plugin: "sysmon", Span: dashboard.Span{W: 6, H: 0}, Enabled: true}},
 		},
 	}
 	for name, doc := range cases {
@@ -179,7 +185,7 @@ func TestDashboardSaveAnswersWithTheStoredDocument(t *testing.T) {
 	defer ts.Close()
 
 	sent := dashboard.Dashboard{
-		Widgets: []dashboard.Widget{{ID: "solo", Plugin: "sysmon", Size: "small", Enabled: true}},
+		Widgets: []dashboard.Widget{{ID: "solo", Plugin: "sysmon", Span: dashboard.Span{W: 4, H: 1}, Enabled: true}},
 		Theme:   "default",
 	}
 	res, body := doJSON(t, ts, http.MethodPut, "/api/v1/dashboard", sent)
@@ -216,17 +222,45 @@ func TestDashboardGetFailsLoudlyOnAnInvalidStoredDocument(t *testing.T) {
 		t.Fatalf("status = %d, want 500", res.StatusCode)
 	}
 	message, _ := body["error"].(string)
-	if !strings.Contains(message, "size must be") {
+	if !strings.Contains(message, "w and h") {
 		t.Errorf("error = %q, want the validation reason", message)
 	}
 }
 
+// A tab opened before Spans PUTs the old shape. It is refused rather than
+// guessed at, and the answer names the fields to send instead (ADR-0008).
+func TestDashboardSaveRefusesTheRetiredSizeField(t *testing.T) {
+	ts, _ := newTestServer(t)
+	defer ts.Close()
+
+	legacy := bytes.NewBufferString(`{"widgets":[{"id":"a","plugin":"sysmon","size":"medium",` +
+		`"enabled":true,"pollSeconds":10}],"theme":"default"}`)
+	req, err := http.NewRequest(http.MethodPut, ts.URL+"/api/v1/dashboard", legacy)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	res, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", res.StatusCode)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !strings.Contains(body["error"], "w and h") {
+		t.Errorf("error = %q, want the fields to send named", body["error"])
+	}
+}
 
 func TestDashboardPersistsAcrossRestart(t *testing.T) {
 	ts, dataDir := newTestServer(t)
 
 	saved := dashboard.Dashboard{
-		Widgets: []dashboard.Widget{{ID: "solo", Plugin: "sysmon", Size: "medium", Enabled: false}},
+		Widgets: []dashboard.Widget{{ID: "solo", Plugin: "sysmon", Span: dashboard.Span{W: 6, H: 1}, Enabled: false}},
 		Theme:   "dracula",
 	}
 	res, _ := doJSON(t, ts, http.MethodPut, "/api/v1/dashboard", saved)

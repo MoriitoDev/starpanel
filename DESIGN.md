@@ -52,7 +52,7 @@ This is the **Palette** the default Theme ships: the fourteen values the chrome 
 | `radius-lg` | `16px` | Popovers and large surfaces |
 | `radius-pill` | `999px` | Icon-only controls, segmented controls |
 
-Borders are always 1px; apparent weight comes from color, never from width. There is exactly one shadow, on popovers: `0 8px 24px rgb(0 0 0 / .10)`. Cards, headers and buttons cast nothing. A Theme may change the shadow, and one that paints a dark canvas will want to.
+Borders are always 1px; apparent weight comes from color, never from width. There is exactly one shadow — `0 8px 24px rgb(0 0 0 / .10)` — on popovers, and on a Widget while its owner is dragging it. At rest, cards, headers and buttons cast nothing. A Theme may change the shadow, and one that paints a dark canvas will want to.
 
 ### Type
 
@@ -76,12 +76,20 @@ Duration 140ms, easing `cubic-bezier(.2, 0, 0, 1)`. Only `opacity`, `transform` 
 
 The default scale, used from this set only: 4, 8, 12, 16, 20, 24, 32, 48, 64. Card padding is 20px (16px under 640px); the gap between major sections is 32px.
 
+### Grid
+
+| Token | Default | Role |
+| --- | --- | --- |
+| `row-height` | `120px` | One grid row: a Widget's height is its rows times this, and that height is a minimum, never a ceiling. Rows are spaced by the gap of §6, which is what a corner drag snaps to. |
+
+The column count and the gaps belong to the breakpoints, and this is the one length the layout is measured in: the CSS sets it, and the drag interaction reads it rather than repeating the number (§8).
+
 ## 3. Rules
 
 - Reference a Token by name; never write a hex, an `rgb()`, a radius or a font size in px inside a component.
 - No `dark:` variants. A Theme's own CSS decides how it reacts to anything, `prefers-color-scheme` included.
 - One accent per screen. No colored borders, no tinted background behind text, no gradients anywhere.
-- A card is `surface` + 1px `border` + `radius-md`. No shadow, no hover lift; hover changes background, never position.
+- A card is `surface` + 1px `border` + `radius-md`. No shadow, no hover lift; hover changes background, never position. While its owner is dragging it, a card carries the one shadow of §2 and the place it will land is marked by a placeholder.
 - Never nest more than two surfaces (canvas → surface → surface-soft).
 - Focus is never removed. The indicator is a 2px `focus-ring` ring with a 2px offset, on `:focus-visible` only, so a mouse click does not ring.
 - Disabled means `mute` text on `surface-soft` — never a dimmed accent, never a faded copy of an enabled control.
@@ -104,7 +112,7 @@ The default scale, used from this set only: 4, 8, 12, 16, 20, 24, 32, 48, 64. Ca
 
 **Card.** `surface`, 1px `border`, `radius-md`, 20px padding, 16px between the title block and the body. Title in `subheading`/`ink`, metadata in `meta`/`mute`. In view mode a card shows a title, its body and at most one muted metadata line. Nothing else.
 
-**Edit mode.** Toggled from the header, where `Edit` becomes a filled `Done`. Edit mode adds to each card a control cluster at the top end (remove), an `enabled` switch, and move controls at the bottom end; it also reveals the add-widget select, a Themes section that imports, deletes with a confirmation and downloads the active Theme, and a Plugins section that imports a ZIP of a Plugin's folder and downloads any Plugin already there. Each change persists as it is made, as today.
+**Edit mode.** Toggled from the header, where `Edit` becomes a filled `Done`. Edit mode turns each card into something the owner can arrange: a drag handle at the top start, the `enabled` switch and a remove control — the Phosphor cross — at the top end, and, on a mouse, the edges themselves: the right edge changes the width, the bottom edge the height and the corner both, each grabbable across the whole gap that separates two cards, since that band is what an owner reads as the edge, with a drawn handle under the pointer where the pointer is coarse. Dragging a card reorders the grid, marking the landing place with a dashed `border` on `surface-soft`, and the card under the pointer carries the one shadow until it is dropped. Under 1024px the `↑`/`↓` move controls appear beside those handles, and under 640px they are the only way to move a card and no edge or handle resizes a card: a one-column grid has nothing to resize across. Edit mode also reveals the add control — a select naming the Widget, and a `+` control under the grid that adds the named Widget at the end, ready to be dragged into place — a Themes section that imports, deletes with a confirmation and downloads the active Theme, and a Plugins section that imports a ZIP of a Plugin's folder and downloads any Plugin already there. Each change persists as it is made, as today.
 
 **Buttons.** Primary: `accent` background, `on-accent` text, `radius-sm`, 36px tall, 14px horizontal padding, weight 500, `accent-press` while pressed. Secondary: `surface` + 1px `border` + `ink`. Ghost: transparent + `mute`, no border. Disabled per the Rules.
 
@@ -130,13 +138,15 @@ Plugin widgets are vanilla ESM rendered at runtime, so Tailwind's build-time sca
 
 Content is at most 1200px wide, centered, with 24px gutters (16px under 640px).
 
-| Breakpoint | Grid | `small` | `medium` | `large` |
-| --- | --- | --- | --- | --- |
-| ≥1024px | 12 columns, 24px gaps | 4 | 6 | 12 |
-| 640–1023px | 6 columns, 16px gaps | 3 | 6 | 6 |
-| <640px | 1 column | 1 | 1 | 1 |
+| Breakpoint | Grid | The width a Widget's Span draws at |
+| --- | --- | --- |
+| ≥1024px | 12 columns, 24px gaps | its own `w` |
+| 640–1023px | 6 columns, 16px gaps | `w` halved and rounded, at least 1 column |
+| <640px | 1 column | 1 column |
 
-`small` / `medium` / `large` is the Widget's declared size and the only layout control a user has; there is no drag grid.
+A Widget's **Span** is the only layout control its owner has: `w` columns (1–12) and `h` rows (1–12, each `--row-height`). The Dashboard stores its Widgets in order and the grid flows them, so a Span says how big a card is and never where it sits: the grid fills each row in order, and a row can end short of the full width. `h` is a minimum: a card whose content needs more room grows to fit it rather than clipping, the drag only ever enlarges it, and a card never borrows a neighbour's height — a row is as tall as its tallest card, and the shorter one keeps its own size with the difference left empty.
+
+Under 1024px the stored layout reflows to the narrower grid as the table shows, and under 640px the stored `h` is ignored: every card is one column wide and as tall as its content. In edit mode the owner drags a card by its handle to reorder it and drags the edge of a card to change its Span ([ADR-0008](./docs/adr/0008-layout-is-an-ordered-grid.md)); the change is saved the moment the gesture ends.
 
 ## 7. Accessibility
 
@@ -146,6 +156,7 @@ Content is at most 1200px wide, centered, with 24px gutters (16px under 640px).
 - Status is never color-only; the dot and every state label carry text or an accessible name.
 - Motion respects `prefers-reduced-motion: reduce`.
 - Structure is semantic: one `h1` for the panel identity, each card a labelled `section`, controls as `button` or `label` + `input`, never clickable `div`s.
+- Arranging the Dashboard by drag takes a pointer; below 1024px every card keeps its `↑`/`↓` buttons, and every control edit mode adds is a `button` or a `label` + `input`.
 - The document is `lang="en"` and the UI copy is English.
 
 ## 8. Implementation notes
@@ -159,3 +170,4 @@ Content is at most 1200px wide, centered, with 24px gutters (16px under 640px).
 - The default Tailwind colour palette is switched off (`--color-*: initial`), so the fourteen tokens are the only colours a utility can name.
 - Sources are declared explicitly (`@source "../src"`, `@source "../index.html"`) because the repo ships no `.gitignore`: automatic detection would also scan `dist/` and feed the built CSS back into the next build.
 - `--popover-shadow` is a baseline value like the rest: `app.css` sets it, and a Theme that paints a dark canvas overrides it.
+- The grid is described once, in `app.css`: its column template, the breakpoint gaps and `--row-height`. The arithmetic in `apps/web/src/lib/layout.ts` mirrors the two breakpoints of §6, reads the gap and the row height from the DOM, and is pinned by cases in `apps/web/tests/layout.test.mjs` — so a grid that changes without the arithmetic changing fails a test instead of confusing a drag. The drag states (the lifted card, the placeholder) are classes in `app.css` like every other state in the panel.

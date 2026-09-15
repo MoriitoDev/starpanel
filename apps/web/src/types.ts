@@ -1,11 +1,15 @@
-export type WidgetSize = "small" | "medium" | "large";
-
 export interface Widget {
   id: string;
   plugin: string;
   /** Which of the plugin's widgets this entry renders; first when empty. */
   widget?: string;
-  size: WidgetSize;
+  /**
+   * The Span (ADR-0008): columns of the grid, 1-12, and rows, each a
+   * `--row-height` tall that the card treats as a minimum. The Widget list is
+   * ordered, so a Span says how big a card is and never where it sits.
+   */
+  w: number;
+  h: number;
   enabled: boolean;
   pollSeconds: number;
   config?: Record<string, unknown>;

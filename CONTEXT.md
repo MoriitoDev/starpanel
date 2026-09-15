@@ -12,6 +12,10 @@ _Avoid_: home page, board
 A single card on the dashboard rendering one plugin's output.
 _Avoid_: card, tile, stat, gadget
 
+**Span**:
+How much room a widget takes on the dashboard's grid: columns wide and rows tall, chosen by the owner. Widgets flow in order, so a Span says how big a card is, never where it sits.
+_Avoid_: size, width and height, dimensions, position
+
 **Plugin**:
 An installable unit providing one or more widgets, with optional backend logic.
 _Avoid_: stat, source, app, integration, addon
