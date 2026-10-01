@@ -32,3 +32,6 @@ func statfsDefault(path string) (statfsFields, error) {
 func readFileDefault(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
+
+// sourceName labels the card's numbers with where they came from.
+func sourceName() string { return "procfs" }

@@ -15,6 +15,11 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $env:CGO_ENABLED = "0"
 $env:GOOS = "linux"
 $env:GOARCH = "amd64"
+# A build script that inherits GOFLAGS can be broken by whoever calls it: `-mod=mod`
+# makes `go run <file>` resolve the file as a module path and fail. The two lines
+# below are the difference between a script that works from anywhere and one that
+# works from a developer's shell.
+$env:GOFLAGS = ""
 
 Write-Host "building backend (linux/amd64)…"
 go build -C "$here/src" -trimpath -ldflags "-s -w -X main.version=0.1.0" -o "$here/backend" .
@@ -56,6 +61,25 @@ try {
   }
 } finally { $archive.Dispose() }
 
+# The external attributes above are only read as a Unix mode when the entry
+# says it was made on Unix, and that lives in the high byte of the central
+# directory's "version made by" field. System.IO.Compression stamps 0x0014
+# (FAT) there, and .NET exposes no way to set it — so a correct 0o755 would be
+# ignored and Go's archive/zip would report 0666. Patching the 2-byte field in
+# each central directory record is the one thing this build cannot leave to a
+# library, and the probe below fails the build if it ever stops working.
+$bytes = [System.IO.File]::ReadAllBytes($zip)
+$patched = 0
+for ($i = 0; $i -le $bytes.Length - 4; $i++) {
+  if ($bytes[$i] -ne 0x50 -or $bytes[$i + 1] -ne 0x4B -or $bytes[$i + 2] -ne 0x01 -or $bytes[$i + 3] -ne 0x02) { continue }
+  $versionMadeBy = [System.BitConverter]::ToUInt16($bytes, $i + 4)
+  $bytes[$i + 5] = 3   # high byte: 3 is Unix, which is what makes the mode mean anything
+  $patched++
+}
+if ($patched -eq 0) { throw "no central directory found in $zip" }
+[System.IO.File]::WriteAllBytes($zip, $bytes)
+Write-Host "marked $patched entries as Unix-made"
+
 # maxPluginArchiveBytes is 32 MiB in apps/api/server.go; failing at 24 MiB is
 # failing before the owner has picked the file, not after.
 $size = (Get-Item $zip).Length
@@ -63,3 +87,28 @@ if ($size -gt 25165824) {
   throw "disk-space.zip is $size bytes; the panel refuses anything over 32 MiB"
 }
 Write-Host ("wrote {0} ({1:N1} MiB)" -f $zip, ($size / 1MB))
+
+# The build checks its own artefact the way core will read it. A build script
+# that only trusts what it wrote is how the mode bug got shipped once already:
+# the ZIP looked right and Go saw 0666.
+#
+# The probe is a *local* program: it reads the ZIP on this machine, so it is
+# built for the host and not for linux/amd64, and it is built to an explicit
+# temp .exe because `go run` compiles to a name with no extension and then fails
+# to exec it on Windows.
+$probe = Join-Path ([System.IO.Path]::GetTempPath()) "disk-space-probe-$([guid]::NewGuid()).exe"
+$crossOS = $env:GOOS
+$crossArch = $env:GOARCH
+try {
+  $env:CGO_ENABLED = "0"
+  $env:GOOS = "windows"
+  $env:GOARCH = "amd64"
+  & go build -o $probe "$here/probe_zip_mode.go"
+  if ($LASTEXITCODE -ne 0) { throw "the mode probe would not build" }
+  & $probe "$zip"
+  if ($LASTEXITCODE -ne 0) { throw "the ZIP's backend is not executable as Go reads it" }
+} finally {
+  $env:GOOS = $crossOS
+  $env:GOARCH = $crossArch
+  Remove-Item $probe -Force -ErrorAction SilentlyContinue
+}

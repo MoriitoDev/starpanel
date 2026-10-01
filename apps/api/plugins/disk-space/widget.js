@@ -42,20 +42,30 @@ const META = "color:var(--mute);font-size:var(--text-meta);";
 const BODY = "color:var(--body);font-size:var(--text-base);";
 const NUMBER = "font-variant-numeric:tabular-nums;";
 
+// A card is a glance, not a log: a syscall error can carry a mile of path and a
+// card that grows to fit it has pushed the panel off the screen. The cap keeps
+// the shape and the `title` keeps the whole sentence reachable.
+const MAX_MESSAGE = 120;
+
+function clip(text, limit) {
+  const value = String(text ?? "");
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit - 1)}…`;
+}
+
 // A bar is a track in surface-soft with a fill in ink: the accent is for the
 // one thing that acts, and on this card that is Clean….
+//
+// The fill has no width transition on purpose: DESIGN.md §3 says nothing
+// animates on its own, and this is a card that polls itself. A bar that steps
+// from 50% to 95% is also a better signal than one that slides there.
 function bar(percent) {
   const track = element(
     "div",
     "background:var(--surface-soft);border-radius:var(--radius-pill);height:6px;overflow:hidden;width:100%;"
   );
   const width = Math.max(0, Math.min(100, Number.isFinite(percent) ? percent : 0));
-  track.append(
-    element(
-      "div",
-      `background:var(--ink);height:100%;width:${width}%;transition:width var(--default-transition-duration) var(--ease-quiet);`
-    )
-  );
+  track.append(element("div", `background:var(--ink);height:100%;width:${width}%;`));
   return track;
 }
 
@@ -81,7 +91,7 @@ export function diskRow(disk, warnPercent) {
 export default function render(el, ctx) {
   const config = ctx.config && typeof ctx.config === "object" ? ctx.config : {};
   const warnPercent = warnPercentFrom(config);
-  const state = { timer: null, attempts: 0, stopped: false };
+  const state = { timer: null, retry: null, attempts: 0, stopped: false };
 
   function paint(children) {
     el.replaceChildren(...children);
@@ -94,7 +104,10 @@ export default function render(el, ctx) {
   }
 
   function failed(message) {
-    paint([element("p", `${BODY}color:var(--danger);`, `Could not read the disks: ${message}`)]);
+    const text = clip(message, MAX_MESSAGE);
+    const line = element("p", `${BODY}color:var(--danger);`, `Could not read the disks: ${text}`);
+    line.setAttribute("title", String(message ?? ""));
+    paint([line]);
   }
 
   function loaded(summary) {
@@ -118,18 +131,29 @@ export default function render(el, ctx) {
       );
     }
 
-    // At most one muted line beyond the body (DESIGN.md §4). Config notes and
-    // warnings are both that line, and a warning about an unreadable Scan Root
-    // outranks a note about a default.
+    // The one control on the card, and the one accent on this surface. Its
+    // handler arrives with the dialog (ticket 04); until then it is a seam and
+    // is disabled rather than a button that does nothing when pressed.
+    const clean = element(
+      "button",
+      "background:var(--accent);color:var(--on-accent);border:0;border-radius:var(--radius-sm);padding:6px 12px;font-size:var(--text-base);cursor:pointer;",
+      "Clean…"
+    );
+    clean.setAttribute("type", "button");
+    clean.disabled = true;
+    clean.setAttribute("title", "The detail view arrives with the next ticket");
+    children.push(clean);
+
+    // The card ends with one muted line: the footer, or the notes when there
+    // are none of those to show (DESIGN.md §4 gives a card at most one).
     const notes = Array.isArray(summary.warnings) ? summary.warnings.filter(Boolean) : [];
     if (summary.configWarning) notes.unshift(summary.configWarning);
     if (notes.length > 0) {
-      const line = element("p", META, notes.join(" · "));
-      line.setAttribute("title", notes.join("\n"));
+      const joined = notes.join("\n");
+      const line = element("p", META, clip(notes.join(" · "), MAX_MESSAGE));
+      line.setAttribute("title", joined);
       children.push(line);
-    }
-
-    if (disks.length > 0) {
+    } else if (disks.length > 0) {
       children.push(
         element(
           "p",
@@ -138,15 +162,6 @@ export default function render(el, ctx) {
         )
       );
     }
-
-    // The one control on the card, and the one accent on this surface.
-    const clean = element(
-      "button",
-      "background:var(--accent);color:var(--on-accent);border:0;border-radius:var(--radius-sm);padding:6px 12px;font-size:var(--text-base);cursor:pointer;",
-      "Clean…"
-    );
-    clean.setAttribute("type", "button");
-    children.push(clean);
 
     paint(children);
   }
@@ -157,11 +172,14 @@ export default function render(el, ctx) {
       const response = await ctx.fetch("summary");
       if (!response.ok) {
         // A 502 is core saying the subprocess is not listening yet: core
-        // restarts it every two seconds, so this is "starting", not "broken".
+        // restarts it every two seconds, so this is "starting", not "broken",
+        // and the card retries quickly instead of waiting a whole poll before
+        // it can be sure (ticket 02: never --danger in the first seconds).
         if (response.status === 502 || response.status === 503 || response.status === 504) {
           state.attempts += 1;
-          if (state.attempts < 5) {
+          if (state.attempts <= 4) {
             starting();
+            scheduleRetry(state.attempts);
             return;
           }
         }
@@ -172,8 +190,29 @@ export default function render(el, ctx) {
       state.attempts = 0;
       loaded(summary);
     } catch (error) {
+      // A fetch that threw is the same story as a 502 — the backend is
+      // restarting — so it gets the same short grace rather than a red line in
+      // the first seconds after a restart. After that it is real.
+      state.attempts += 1;
+      if (state.attempts <= 4) {
+        starting();
+        scheduleRetry(state.attempts);
+        return;
+      }
       failed(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  // A short backoff: 2s, 4s, 8s, 16s. Core restarts a dead backend after two
+  // seconds and waits up to three for it to listen, so most of these land on a
+  // backend that is already back.
+  function scheduleRetry(attempt) {
+    if (state.stopped) return;
+    if (state.retry !== null) clearTimeout(state.retry);
+    state.retry = setTimeout(() => {
+      state.retry = null;
+      void poll();
+    }, 2000 * 2 ** (attempt - 1));
   }
 
   starting();
@@ -183,5 +222,6 @@ export default function render(el, ctx) {
   return () => {
     state.stopped = true;
     if (state.timer !== null) clearInterval(state.timer);
+    if (state.retry !== null) clearTimeout(state.retry);
   };
 }

@@ -54,16 +54,16 @@ func TestSummaryAnswersTheShapeTheCardReads(t *testing.T) {
 // and a field added later is a field every client already ignores.
 func TestSummaryListsEveryCategoryInAStableOrder(t *testing.T) {
 	_, body := get(t, newServer().routes(), "/summary")
-	categories, ok := body["categories"].([]any)
+	listed, ok := body["categories"].([]any)
 	if !ok {
 		t.Fatalf("categories is %T, want a list", body["categories"])
 	}
-	if len(categories) != len(categoryOrder) {
-		t.Fatalf("got %d categories, want %d", len(categories), len(categoryOrder))
+	if len(listed) != len(categories) {
+		t.Fatalf("got %d categories, want %d", len(listed), len(categories))
 	}
-	for index, raw := range categories {
+	for index, raw := range listed {
 		category := raw.(map[string]any)
-		want := categoryOrder[index]
+		want := categories[index].id
 		if category["id"] != string(want) {
 			t.Errorf("category %d is %v, want %s", index, category["id"], want)
 		}

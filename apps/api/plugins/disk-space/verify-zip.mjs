@@ -14,9 +14,15 @@ import { readFileSync } from "node:fs";
 const zipPath = new URL("./dist/disk-space.zip", import.meta.url);
 
 /**
- * Reads every entry's name and Unix mode out of a ZIP's central directory. The
- * mode lives in the high 16 bits of the external attributes, which is exactly
- * the field `Compress-Archive` leaves empty.
+ * Reads every entry's name, Unix mode and host byte out of a ZIP's central
+ * directory.
+ *
+ * The mode lives in the high 16 bits of the external attributes — and the host
+ * byte in offset 4 decides whether anyone reads them as a mode at all. A reader
+ * that only looks at the attributes reports "executable" for a ZIP that every
+ * real reader sees as 0666, which is exactly how a build script ships an
+ * unexecutable binary with a green check next to it. `probe_zip_mode.go` asks
+ * Go the same question and is the authority; this is the cheap local check.
  */
 function entries(buffer) {
   const found = [];
@@ -35,13 +41,23 @@ function entries(buffer) {
   for (let index = 0; index < count; index += 1) {
     if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error("bad central directory entry");
     const external = buffer.readUInt32LE(offset + 38);
+    const hostByte = buffer.readUInt8(offset + 5);
     const nameLength = buffer.readUInt16LE(offset + 28);
     const extraLength = buffer.readUInt16LE(offset + 30);
     const commentLength = buffer.readUInt16LE(offset + 32);
     const name = buffer.toString("utf8", offset + 46, offset + 46 + nameLength);
     // High 16 bits hold the Unix mode; 0o100000 marks a regular file.
     const mode = (external >>> 16) & 0o7777;
-    found.push({ name, mode, executable: (mode & 0o111) !== 0 });
+    found.push({
+      name,
+      mode,
+      hostByte,
+      // Unix is host 3. Without it the mode is in the archive and read by
+      // nobody, so "executable" would be a claim about a field that does not
+      // count.
+      unixMade: hostByte === 3,
+      executable: (mode & 0o111) !== 0 && hostByte === 3
+    });
     offset += 46 + nameLength + extraLength + commentLength;
   }
   return found;
@@ -52,14 +68,19 @@ function report(label, buffer) {
   const backend = list.find((entry) => entry.name.endsWith("/backend"));
   if (!backend) throw new Error(`${label}: no backend entry`);
   console.log(
-    `${label}: backend mode 0o${backend.mode.toString(8)} (${backend.executable ? "executable" : "NOT executable"}), ${list.length} entries`
+    `${label}: backend mode 0o${backend.mode.toString(8)}, made by host ${backend.hostByte}` +
+      `${backend.unixMade ? " (Unix)" : " (NOT Unix: the mode is ignored)"} — ` +
+      `${backend.executable ? "executable" : "NOT executable"}, ${list.length} entries`
   );
   return backend.executable;
 }
 
 const built = readFileSync(zipPath);
 if (!report("built ZIP", built)) {
-  throw new Error("the built ZIP's backend is not executable: check build.ps1's ExternalAttributes");
+  throw new Error(
+    "the built ZIP's backend is not executable as a reader sees it: build.ps1 must set both the " +
+      "external attributes and the central directory's Unix host byte (run probe_zip_mode.go to see what Go says)"
+  );
 }
 
 const panel = (process.argv[2] ?? "").replace(/\/$/, "");

@@ -229,3 +229,26 @@ it, so the package compiles everywhere even though only `linux/amd64` ships.
   restart loop never reaches a healthy state. The widget handles that path in code and the
   proxy's behaviour is core's existing, tested one, but the end-to-end run belongs on the
   Linux panel the Plugin is built for.
+- 2026-10-01: **The code review caught the defect this ticket exists to prevent, one layer
+  further out.** `build.ps1` set the external attributes to `0o755 << 16` and the build
+  looked right — but a ZIP's external attributes are only read as a Unix mode when the
+  central directory's "version made by" high byte says the archive was made on Unix, and
+  `System.IO.Compression` stamps FAT (`0x0014`) there. Go's `archive/zip` therefore
+  reported `0666`, `unpackedMode` wrote `0644`, and the new `executableBackend` check
+  refused the Plugin's own ZIP. Worse, `verify-zip.mjs` read only the external attributes
+  and printed a green "executable", so the artefact was verified by a check that agreed
+  with itself instead of with the reader that matters. `.NET` exposes no way to set that
+  field, so `build.ps1` now patches the two bytes in each central directory record, and
+  `probe_zip_mode.go` asks Go the same question — the build fails if the answer is no.
+  The lesson is worth more than the fix: a verifier that shares an assumption with the
+  thing it verifies is not a verifier.
+- 2026-10-01: Also from the review: `unpackedMode` no longer forces a `0o644` base (a
+  `0600` file stays owner-only; only execute may be added, and group/other write is always
+  dropped), `Disks` takes the declared Scan Roots so a `tmpfs` mounted at one is shown
+  instead of filtered, the Category rules are generated from the settings so the sentence
+  a person reads cannot contradict the threshold in force, and an HTTP-level test asserts
+  the exec bit across `POST /plugins` and `GET /archive` rather than only through the
+  package's functions.
+- 2026-10-01: One review point was a false positive and is recorded as such so nobody
+  re-opens it: the Plugin README does not contain a duplicated uid-10001 section; it has
+  one `## The user it must run as` heading and one copy of the text.

@@ -265,29 +265,30 @@ func writeEntry(file *zip.File, target string, budget int64) (int64, error) {
 	return written, nil
 }
 
-// unpackedMode is what an archive entry is allowed to become. The base is
-// readable and writable by its owner, which is all a Plugin's own files need;
-// the only thing an archive may add to that is execute, for the binaries
-// `docs/PLUGINS.md` lets a Plugin carry. Setuid, setgid, sticky and
-// world-writable are dropped rather than honoured: an archive is a folder from
-// a stranger, and the panel is not going to run what it hands over as anyone
-// but itself.
+// unpackedMode is what an archive entry is allowed to become.
+//
+// The archive's own read and write bits are kept — a file the author marked
+// owner-only is not made world-readable by being unpacked — and what it may add
+// is execute. Group and other execute are honoured when the archive asked for
+// them, so a Plugin's binary arrives runnable; setuid, setgid, sticky and
+// world-writable are dropped rather than honoured, because an archive is a
+// folder from a stranger and the panel is not going to run what it hands over
+// as anyone but itself.
 //
 // It takes a mode rather than the zip entry so the decision is a pure one, and
 // a test can pin it on a platform that has no execute bit to read back.
 func unpackedMode(from fs.FileMode) fs.FileMode {
-	mode := fs.FileMode(0o644)
+	perm := from.Perm() & 0o777
+	if perm == 0 {
+		// An entry with no mode at all (some Windows ZIP tools) still has to be
+		// readable, or the Plugin arrives as files nobody can open.
+		perm = 0o644
+	}
+	mode := perm &^ 0o022 // never group- or world-writable
 	if from.Perm()&0o111 != 0 {
-		// Execute is granted on the owner, and on the group and others only if
-		// the archive asked for it there. A file nobody but the owner may run
-		// is exactly what a Plugin's own binary should be.
+		// Execute is anchored on the owner: a file the owner cannot run is not
+		// made runnable by somebody else's bit.
 		mode |= 0o100
-		if from.Perm()&0o010 != 0 {
-			mode |= 0o010
-		}
-		if from.Perm()&0o001 != 0 {
-			mode |= 0o001
-		}
 	}
 	return mode
 }

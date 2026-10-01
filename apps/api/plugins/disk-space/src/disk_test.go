@@ -58,7 +58,7 @@ func TestDisksLeavesOutWhatIsNotStorage(t *testing.T) {
 		"/tmp":  {blocks: 10, bfree: 10, bavail: 10, bsize: 1024},
 		"/proc": {blocks: 1, bfree: 1, bavail: 1, bsize: 1},
 		"/sys":  {blocks: 1, bfree: 1, bavail: 1, bsize: 1},
-	}))
+	}), nil)
 	if err != nil {
 		t.Fatalf("Disks: %v", err)
 	}
@@ -67,6 +67,48 @@ func TestDisksLeavesOutWhatIsNotStorage(t *testing.T) {
 	}
 	if disks[0].Mount != "/" {
 		t.Errorf("listed %q, want /", disks[0].Mount)
+	}
+}
+
+// A tmpfs at a declared Scan Root is the Disk the owner asked about, and
+// filtering it would leave the card unable to explain the very path the Plugin
+// is measuring.
+func TestDisksShowsATmpfsAtADeclaredScanRoot(t *testing.T) {
+	statfs := answering(map[string]statfsFields{
+		"/":    {blocks: 100, bfree: 40, bavail: 30, bsize: 1024},
+		"/tmp": {blocks: 10, bfree: 4, bavail: 4, bsize: 1024},
+	})
+	disks, _, err := Disks(reading(procMounts), statfs, []string{"/tmp"})
+	if err != nil {
+		t.Fatalf("Disks: %v", err)
+	}
+	var found bool
+	for _, disk := range disks {
+		if disk.Mount == "/tmp" {
+			found = true
+			if disk.FS != "tmpfs" {
+				t.Errorf("the /tmp Disk reports filesystem %q", disk.FS)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("a tmpfs at a declared Scan Root was filtered out: %+v", disks)
+	}
+}
+
+// And a tmpfs nobody declared stays out, because it is not storage.
+func TestDisksStillLeavesOutAnUndeclaredTmpfs(t *testing.T) {
+	disks, _, err := Disks(reading(procMounts), answering(map[string]statfsFields{
+		"/":    {blocks: 100, bfree: 40, bavail: 30, bsize: 1024},
+		"/tmp": {blocks: 10, bfree: 4, bavail: 4, bsize: 1024},
+	}), []string{"/var/log"})
+	if err != nil {
+		t.Fatalf("Disks: %v", err)
+	}
+	for _, disk := range disks {
+		if disk.Mount == "/tmp" {
+			t.Errorf("an undeclared tmpfs was listed: %+v", disk)
+		}
 	}
 }
 
@@ -79,7 +121,7 @@ func TestDisksReportsADeviceOnce(t *testing.T) {
 		"/srv/media":       {blocks: 200, bfree: 100, bavail: 90, bsize: 1024},
 		"/srv/media/photo": {blocks: 200, bfree: 100, bavail: 90, bsize: 1024},
 		"/mnt/with space":  {blocks: 50, bfree: 25, bavail: 25, bsize: 1024},
-	}))
+	}), nil)
 	if err != nil {
 		t.Fatalf("Disks: %v", err)
 	}
@@ -102,6 +144,7 @@ func TestDisksCountsFreeSpaceAsAvailableSpace(t *testing.T) {
 		answering(map[string]statfsFields{
 			"/": {blocks: 1000, bfree: 500, bavail: 400, bsize: 1024},
 		}),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("Disks: %v", err)
@@ -129,7 +172,7 @@ func TestDisksSurvivesAStatfsFailure(t *testing.T) {
 			return statfsFields{}, errors.New("permission denied")
 		}
 		return statfsFields{blocks: 100, bfree: 50, bavail: 40, bsize: 1024}, nil
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("Disks returned an error instead of a warning: %v", err)
 	}
@@ -148,7 +191,7 @@ func TestDisksSurvivesAStatfsFailure(t *testing.T) {
 
 // A machine with nothing worth showing is not an error.
 func TestDisksOnAnEmptyTableIsEmpty(t *testing.T) {
-	disks, warnings, err := Disks(reading(""), answering(nil))
+	disks, warnings, err := Disks(reading(""), answering(nil), nil)
 	if err != nil {
 		t.Fatalf("Disks: %v", err)
 	}

@@ -261,11 +261,14 @@ func TestUnpackedModeGrantsExecuteAndNothingMore(t *testing.T) {
 		{"an executable keeps its bit", 0o755, 0o755},
 		{"owner-only execute still counts", 0o744, 0o744},
 		{"no mode at all is readable", 0, 0o644},
+		{"owner-only stays owner-only", 0o600, 0o600},
+		{"a private binary stays private", 0o700, 0o700},
 		{"setuid is dropped", os.FileMode(0o4755), 0o755},
 		{"setgid is dropped", os.FileMode(0o2755), 0o755},
 		{"sticky is dropped", os.FileMode(0o1755), 0o755},
 		{"world-writable is dropped", 0o666, 0o644},
 		{"group-writable is dropped", 0o664, 0o644},
+		{"a world-writable executable loses only write", 0o777, 0o755},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

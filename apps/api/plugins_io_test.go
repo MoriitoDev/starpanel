@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -211,5 +213,93 @@ func TestPluginDownloadOfAnUnknownPlugin(t *testing.T) {
 	res, body := doJSON(t, ts, http.MethodGet, "/api/v1/plugins/nope/archive", nil)
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d (%v), want 404", res.StatusCode, body)
+	}
+}
+
+// zipWithMode builds the archive a Plugin that brings its own binary arrives in:
+// the entry carries a Unix mode, which is the one thing `Create` would lose.
+func zipWithMode(t *testing.T, entries map[string]struct {
+	body string
+	mode fs.FileMode
+}) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	for name, entry := range entries {
+		header := &zip.FileHeader{Name: name, Method: zip.Deflate}
+		header.SetMode(entry.mode)
+		file, err := writer.CreateHeader(header)
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		if _, err := file.Write([]byte(entry.body)); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close archive: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+// A Plugin that ships a compiled backend has to survive the panel's own HTTP
+// surface, not only the plugins module's functions: `POST /api/v1/plugins` puts
+// it on disk and `GET .../archive` hands it back, and both are places the mode
+// was lost. The Unix-only assertion is on the binary's execute bit after the
+// download, because that is what makes it worth downloading.
+func TestPluginImportDownloadKeepsABinaryExecutable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("an execute bit is not a thing Windows has")
+	}
+	ts, pluginsDir := newPluginServer(t, nil)
+	defer ts.Close()
+
+	status, body := postArchive(t, ts, zipWithMode(t, map[string]struct {
+		body string
+		mode fs.FileMode
+	}{
+		"brings-binary/manifest.json": {
+			`{"name":"brings-binary","version":"0.1.0",` +
+				`"widgets":[{"id":"w","title":"W","module":"widget.js"}],` +
+				`"backend":{"command":["./backend"]}}`, 0o644},
+		"brings-binary/widget.js": {"export default () => {};", 0o644},
+		"brings-binary/backend":   {"#!/bin/sh\n", 0o755},
+	}))
+	if status != http.StatusCreated {
+		t.Fatalf("import status = %d (%v), want 201", status, body)
+	}
+	unpacked, err := os.Stat(filepath.Join(pluginsDir, "brings-binary", "backend"))
+	if err != nil {
+		t.Fatalf("stat the imported binary: %v", err)
+	}
+	if unpacked.Mode().Perm()&0o111 == 0 {
+		t.Errorf("the imported binary is not executable: mode %v", unpacked.Mode().Perm())
+	}
+
+	download, err := ts.Client().Get(ts.URL + "/api/v1/plugins/brings-binary/archive")
+	if err != nil {
+		t.Fatalf("download: %v", err)
+	}
+	defer download.Body.Close()
+	archive, err := io.ReadAll(download.Body)
+	if err != nil {
+		t.Fatalf("read download: %v", err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		t.Fatalf("the download is not a ZIP: %v", err)
+	}
+	var found bool
+	for _, file := range reader.File {
+		if !strings.HasSuffix(file.Name, "/backend") {
+			continue
+		}
+		found = true
+		if file.Mode().Perm()&0o111 == 0 {
+			t.Errorf("the download lost the execute bit: mode %v, creator 0x%04x", file.Mode(), file.CreatorVersion)
+		}
+	}
+	if !found {
+		t.Error("the download holds no backend entry")
 	}
 }

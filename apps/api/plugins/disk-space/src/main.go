@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -18,34 +19,91 @@ var version = "0.1.0"
 // to find and the rules it finds it by (CONTEXT.md).
 type CategoryID string
 
-// categoryOrder is the order the dialog renders in. It is fixed and explicit,
-// because a list that reshuffles between polls is unusable.
-var categoryOrder = []CategoryID{
-	"docker-images",
-	"docker-volumes",
-	"rotated-logs",
-	"package-caches",
-	"temp-files",
-	"large-files",
+// categoryMeta is one Category as the card and the dialog read it. The order of
+// this slice is the order they render in — fixed and explicit, because a list
+// that reshuffles between polls is unusable. reviewOnly is the one fact that
+// decides both flags on the wire: a Category that only ever recommends never
+// offers a tick box (D10). The rule is a function of the settings because the
+// sentence a person reads quotes a threshold, and a threshold baked into the
+// text is a sentence the owner's config can contradict.
+type categoryMeta struct {
+	id         CategoryID
+	title      string
+	rule       func(Settings) string
+	reviewOnly bool
 }
 
-// categoryTitles and categoryRules are what a person reads next to the bytes.
-var categoryTitles = map[CategoryID]string{
-	"docker-images":  "Docker images and cache",
-	"docker-volumes": "Docker volumes",
-	"rotated-logs":   "Rotated logs",
-	"package-caches": "Package caches",
-	"temp-files":     "Temporary files",
-	"large-files":    "Large files",
+var categories = []categoryMeta{
+	{
+		id:    "docker-images",
+		title: "Docker images and cache",
+		rule: func(Settings) string {
+			return "dangling images, stopped containers, unused networks and the build cache, as Docker itself reports them"
+		},
+	},
+	{
+		id:    "docker-volumes",
+		title: "Docker volumes",
+		rule: func(Settings) string {
+			return "volumes no container references — a volume is data, not junk"
+		},
+	},
+	{
+		id:    "rotated-logs",
+		title: "Rotated logs",
+		rule: func(s Settings) string {
+			return fmt.Sprintf("/var/log *.log, *.gz and *.1-*.9 older than %d days, and the systemd journal", s.LogDays)
+		},
+	},
+	{
+		id:    "package-caches",
+		title: "Package caches",
+		rule: func(s Settings) string {
+			return fmt.Sprintf("apt archives, pip, npm, pnpm, go build and cargo caches older than %d days", s.CacheDays)
+		},
+	},
+	{
+		id:    "temp-files",
+		title: "Temporary files",
+		rule: func(s Settings) string {
+			return fmt.Sprintf("/tmp and /var/tmp older than %d days, and /var/crash", s.TempDays)
+		},
+	},
+	{
+		id:         "large-files",
+		title:      "Large files",
+		reviewOnly: true,
+		rule: func(s Settings) string {
+			return fmt.Sprintf("over %s under a Scan Root — big, and not necessarily dead", humanBytes(s.LargeFileBytes))
+		},
+	},
 }
 
-var categoryRules = map[CategoryID]string{
-	"docker-images":  "dangling images, stopped containers, unused networks and the build cache, as Docker itself reports them",
-	"docker-volumes": "volumes no container references",
-	"rotated-logs":   "/var/log *.log, *.gz and *.1-*.9 older than 30 days, and the systemd journal",
-	"package-caches": "apt archives, pip, npm, pnpm, go build and cargo caches older than 30 days",
-	"temp-files":     "/tmp and /var/tmp older than 7 days, and /var/crash",
-	"large-files":    "over 1 GB under a Scan Root — big, and not necessarily dead",
+// Settings is what the widget's config came to: the paths and thresholds every
+// Category measures by, with the documented defaults where the config said
+// nothing usable. Ticket 09 owns the validation and the notes it produces; this
+// is the seam it fills.
+type Settings struct {
+	ScanRoots      []string `json:"scanRoots"`
+	LogDays        int      `json:"logDays"`
+	CacheDays      int      `json:"cacheDays"`
+	TempDays       int      `json:"tempDays"`
+	LargeFileBytes uint64   `json:"largeFileBytes"`
+	WarnPercent    int      `json:"warnPercent"`
+}
+
+// defaultSettings is spec §8's list. ScanRoots is the places waste actually
+// lives rather than "/": a default that points the hot index at every Disk is a
+// default nobody intended (D14).
+func defaultSettings() Settings {
+	return Settings{
+		ScanRoots:      []string{"/var/log", "/var/cache", "/tmp", "/var/tmp", "/var/lib/docker", "/var/crash"},
+		LogDays:        30,
+		CacheDays:      30,
+		TempDays:       7,
+		LargeFileBytes: 1073741824,
+		WarnPercent:    90,
+	}
 }
 
 // Capability is whether this process may act on a Candidate at all, on a
@@ -70,16 +128,15 @@ type Capability struct {
 // CategorySummary is one Category on the card's poll: how many Candidates it
 // found and how much they occupy, with no Candidate list attached.
 type CategorySummary struct {
-	ID          CategoryID `json:"id"`
-	Title       string     `json:"title"`
-	Rule        string     `json:"rule"`
-	Candidates  int        `json:"candidates"`
-	Bytes       uint64     `json:"bytes"`
-	Estimate    bool       `json:"estimate"`
-	Tickable    bool       `json:"tickable"`
-	ReviewOnly  bool       `json:"reviewOnly,omitempty"`
-	Capability  Capability `json:"capability"`
-	MeasuredAge string     `json:"measuredAge,omitempty"`
+	ID         CategoryID `json:"id"`
+	Title      string     `json:"title"`
+	Rule       string     `json:"rule"`
+	Candidates int        `json:"candidates"`
+	Bytes      uint64     `json:"bytes"`
+	Estimate   bool       `json:"estimate"`
+	Tickable   bool       `json:"tickable"`
+	ReviewOnly bool       `json:"reviewOnly,omitempty"`
+	Capability Capability `json:"capability"`
 }
 
 // Summary is what the card polls. It is cheap by construction: statfs per Disk
@@ -100,13 +157,15 @@ type Summary struct {
 // to check first.
 func ok() Capability { return Capability{OK: true} }
 
-// placeholder is the capability of a Category whose scanner is not built yet.
-func placeholder() Capability {
+// unimplemented is the capability of a Category whose scanner does not exist
+// yet. It is honest rather than silent: nothing is tickable, and the Category
+// says why in the words the row would show.
+func unimplemented() Capability {
 	return Capability{
-		OK:        false,
-		Kind:      "not-implemented",
-		Words:     "this Category is not measured yet",
-		Remedy:    "nothing to do: the Plugin is being built out, ticket by ticket",
+		OK:     false,
+		Kind:   "not-implemented",
+		Words:  "this Category is not measured yet",
+		Remedy: "no action needed",
 	}
 }
 
@@ -129,8 +188,8 @@ func (i *index) age() string {
 // listing this process cannot read is a warning beside the rest of the answer,
 // because the card still has Categories and an age to show, and a card that
 // says "could not read the disks" is more use than a card that says 500.
-func (i *index) summary() Summary {
-	disks, warnings, err := Disks(readFileDefault, statfsDefault)
+func (i *index) summary(settings Settings) Summary {
+	disks, warnings, err := Disks(readFileDefault, statfsDefault, settings.ScanRoots)
 	if err != nil {
 		disks = []Disk{}
 		warnings = append(warnings, "could not read the disks: "+err.Error())
@@ -138,15 +197,15 @@ func (i *index) summary() Summary {
 	if disks == nil {
 		disks = []Disk{}
 	}
-	categories := make([]CategorySummary, 0, len(categoryOrder))
-	for _, id := range categoryOrder {
-		categories = append(categories, CategorySummary{
-			ID:         id,
-			Title:      categoryTitles[id],
-			Rule:       categoryRules[id],
-			Tickable:   id != "large-files",
-			ReviewOnly: id == "large-files",
-			Capability: placeholder(),
+	summaries := make([]CategorySummary, 0, len(categories))
+	for _, meta := range categories {
+		summaries = append(summaries, CategorySummary{
+			ID:         meta.id,
+			Title:      meta.title,
+			Rule:       meta.rule(settings),
+			Tickable:   !meta.reviewOnly,
+			ReviewOnly: meta.reviewOnly,
+			Capability: unimplemented(),
 		})
 	}
 	if warnings == nil {
@@ -156,7 +215,7 @@ func (i *index) summary() Summary {
 		Disks:                 disks,
 		ReclaimableBytes:      0,
 		ReclaimableIsEstimate: true,
-		Categories:            categories,
+		Categories:            summaries,
 		Warnings:              warnings,
 		IndexAge:              i.age(),
 		Source:                sourceName(),
@@ -164,10 +223,9 @@ func (i *index) summary() Summary {
 	}
 }
 
-// sourceName says where the numbers came from, in the one word the card shows.
-func sourceName() string {
-	return "procfs"
-}
+// sourceName says where the numbers came from, in the one word the card's
+// footer shows. It is per-platform because the answer is: a build that cannot
+// read /proc must not label its output "procfs".
 
 // shortDuration is the age as a person reads it: seconds, then minutes, then
 // hours. "1m2.5s" is not an answer to "how old is this".
@@ -202,11 +260,15 @@ func (s *server) health(w http.ResponseWriter, _ *http.Request) {
 		"status":   "ok",
 		"version":  version,
 		"indexAge": s.index.age(),
+		// docker is spec §3's field: whether the CLI this Plugin needs for two
+		// of its Categories is there. It is measured, never installed.
+		"docker": dockerState(),
 	})
 }
 
-func (s *server) getSummary(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.index.summary())
+func (s *server) getSummary(w http.ResponseWriter, r *http.Request) {
+	settings, _ := settingsFrom(r.URL.Query().Get("config"))
+	writeJSON(w, http.StatusOK, s.index.summary(settings))
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -132,7 +133,12 @@ func isOctal(s string) bool {
 // statfs is the one platform-specific call. A Disk whose statfs fails is
 // omitted rather than reported as zero: a zero-capacity Disk would make the
 // card say a machine has no space at all.
-func Disks(read func(string) ([]byte, error), statfs func(string) (statfsFields, error)) ([]Disk, []string, error) {
+//
+// roots are the Scan Roots the owner declared. They matter here for exactly one
+// case: a tmpfs at a declared root is the Disk the owner asked about — a panel
+// whose /tmp is a tmpfs and who scans /tmp wants to see it — while every other
+// tmpfs is not storage and listing it would put a bar on a card that lies.
+func Disks(read func(string) ([]byte, error), statfs func(string) (statfsFields, error), roots []string) ([]Disk, []string, error) {
 	raw, err := read("/proc/mounts")
 	if err != nil {
 		return nil, nil, err
@@ -144,7 +150,7 @@ func Disks(read func(string) ([]byte, error), statfs func(string) (statfsFields,
 	// reported three times under three paths.
 	best := map[string]mountEntry{}
 	for _, entry := range entries {
-		if pseudoFilesystems[entry.fs] {
+		if !worthShowing(entry, roots) {
 			continue
 		}
 		current, seen := best[entry.device]
@@ -175,6 +181,38 @@ func Disks(read func(string) ([]byte, error), statfs func(string) (statfsFields,
 		disks = append(disks, newDisk(entry, fields))
 	}
 	return disks, warnings, nil
+}
+
+// worthShowing is the pseudo-filesystem filter, with the one exception the
+// owner can make: a tmpfs mounted at a declared Scan Root is the Disk they
+// asked about, so it is shown and everything else that is not storage is not.
+func worthShowing(entry mountEntry, roots []string) bool {
+	if !pseudoFilesystems[entry.fs] {
+		return true
+	}
+	if entry.fs != "tmpfs" {
+		return false
+	}
+	for _, root := range roots {
+		if cleanPath(root) == cleanPath(entry.mount) {
+			return true
+		}
+	}
+	return false
+}
+
+// cleanPath normalises a path for the comparison above: no trailing slash, and
+// always absolute. It is deliberately not filepath.Clean, which on Windows
+// would rewrite a Unix path's separators.
+func cleanPath(path string) string {
+	trimmed := strings.TrimRight(path, "/")
+	if trimmed == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(trimmed, "/") {
+		return "/" + trimmed
+	}
+	return trimmed
 }
 
 // isBetterMount prefers the shorter path, and the alphabetically first on a
@@ -236,4 +274,21 @@ func mountLabel(mount string) string {
 // round1 keeps one decimal, which is all a percentage bar can honestly show.
 func round1(value float64) float64 {
 	return float64(int(value*10+0.5)) / 10
+}
+
+// humanBytes is the same shape the card uses for its figures, in Go: the rule
+// a Category prints has to quote the threshold the same way the owner set it.
+func humanBytes(bytes uint64) string {
+	units := []string{"B", "KB", "MB", "GB", "TB", "PB"}
+	value := float64(bytes)
+	unit := 0
+	for value >= 1024 && unit < len(units)-1 {
+		value /= 1024
+		unit++
+	}
+	rounded := round1(value)
+	if rounded == float64(int64(rounded)) {
+		return fmt.Sprintf("%d %s", int64(rounded), units[unit])
+	}
+	return fmt.Sprintf("%.1f %s", rounded, units[unit])
 }
