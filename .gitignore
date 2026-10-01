@@ -24,10 +24,14 @@ apps/api/themes/
 # committed, and its journal is written at runtime. The Go cache lives here too
 # so a build never has to touch the user's profile.
 apps/api/plugins/disk-space/backend
+# A local Windows build, made only to look at the card on a developer's machine:
+# the Plugin ships for linux/amd64, so this is never a deliverable.
+apps/api/plugins/disk-space/backend.exe
 apps/api/plugins/disk-space/dist/
 apps/api/plugins/disk-space/state/
 .gocache/
 .gomodcache/
+.gotmp/
 
 # Tool output
 .openchamber/screenshots/
