@@ -51,8 +51,8 @@
           const ctx: WidgetContext = {
             config: widget.config ?? {},
             pollSeconds: widget.pollSeconds,
-            fetch: (path: string) =>
-              fetch(`/api/v1/plugins/${plugin.name}/proxy/${path}`)
+            fetch: (path: string, init?: RequestInit) =>
+              fetch(`/api/v1/plugins/${plugin.name}/proxy/${path}`, init)
           };
           const result = mod.default(target, ctx);
           if (typeof result === "function") {

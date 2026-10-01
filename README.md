@@ -68,6 +68,40 @@ Three things worth knowing before you put this on a server:
 - **A Plugin backend needs its runtime in the image.** The bundled `system-stats` is core, `hello-widget` has no backend, and `echo` is left out on purpose: its backend is a Node script and the runtime image has no Node.
 - **A Plugin that talks to Docker needs the socket.** Mount `/var/run/docker.sock` and make sure the container's user may use it.
 
+## The disk Plugin, when you add it
+
+One more thing worth knowing, for a Plugin that is not bundled: `disk-space` measures and
+cleans. It is optional and is not in the image: it is a folder Plugin you drop into
+`plugins/` or import as a ZIP, with a Go binary built for `linux/amd64`. Its
+[README](apps/api/plugins/disk-space/README.md) says what it needs, the mounts it expects
+and the user it must run as — and how to build the ZIP so its binary arrives executable.
+
+Two things decide whether it is useful, and both are about the container:
+
+- **It can only clean what it can see.** `statfs` works on any mount, so the Plugin always
+  reports every Disk correctly, but the waste itself lives in the host's `/var/log`,
+  `/var/cache`, `/tmp` and `/var/lib/docker`, and a container sees none of them unless
+  they are mounted. `docker-compose.yml` carries the mount lines commented out: mount the
+  host's path where the Plugin's `scanRoots` expects it, and leave the defaults alone.
+- **It is not root, and it should not become root.** The image runs the panel as uid
+  10001, so a mount is not the same as permission: `/var/log` is root-owned on most
+  distributions, and the Docker socket is too. The Plugin's answer is to show what it
+  cannot touch, in `mute`, with a tooltip naming the failed syscall and how to enable it —
+  never to demand `--privileged` or `user: root`, which would hand the panel the whole
+  host in exchange for convenience.
+- **It is not root, and it should not become root.** The image runs the panel as uid
+  10001, so a mount is not the same as permission: `/var/log` is root-owned on most
+  distributions, and the Docker socket is too. The Plugin's answer is to show what it
+  cannot touch, in `mute`, with a tooltip naming the failed syscall and how to enable it —
+  never to demand `--privileged` or `user: root`, which would hand the panel the whole
+  host in exchange for convenience.
+
+What it removes, it removes after showing you: every cleanup is measured, listed, and run
+as a dry run first, and the removal is refused by the Plugin itself if it was not
+previewed ([ADR-0010](docs/adr/0010-every-plan-is-a-dry-run-first.md)). Its power is why
+it is optional and why it is not built into core
+([ADR-0009](docs/adr/0009-disk-plugin-is-an-optional-folder-plugin.md)).
+
 ## Commands
 
 ```powershell

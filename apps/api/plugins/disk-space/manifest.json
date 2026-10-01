@@ -1,0 +1,7 @@
+{
+  "name": "disk-space",
+  "version": "0.1.0",
+  "widgets": [{ "id": "disk-space", "title": "Disk space", "module": "widget.js" }],
+  "backend": { "command": ["./backend"] },
+  "requires": [{ "command": "docker" }]
+}

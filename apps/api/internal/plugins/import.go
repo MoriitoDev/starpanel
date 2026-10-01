@@ -50,6 +50,12 @@ func (r *Registry) Import(archive []byte) (Entry, error) {
 	if _, err := os.Stat(destination); err == nil {
 		return refused(declared.Name, destination)
 	}
+	// A panel whose plugins folder has never held anything has no plugins
+	// folder yet: discovery treats that as "no Plugins" and so must an import,
+	// rather than failing on the staging folder it is about to create inside.
+	if err := os.MkdirAll(r.dir, 0o755); err != nil {
+		return Entry{}, fmt.Errorf("prepare the plugins folder: %w", err)
+	}
 
 	staging, err := os.MkdirTemp(r.dir, ".import-")
 	if err != nil {
@@ -87,6 +93,10 @@ func refused(name, destination string) (Entry, error) {
 
 // Archive returns a Plugin's folder as a ZIP, under the folder name, which is
 // the shape Import takes back in.
+//
+// The mode travels with each entry, because a Plugin may carry a compiled
+// binary and `writer.Create` would write 0644: a Download that cannot be
+// imported back into a working Plugin is worse than no download at all.
 func (e Entry) Archive() ([]byte, error) {
 	var buffer bytes.Buffer
 	writer := zip.NewWriter(&buffer)
@@ -106,7 +116,17 @@ func (e Entry) Archive() ([]byte, error) {
 		if err != nil {
 			return err
 		}
-		entry, err := writer.Create(e.Folder + "/" + filepath.ToSlash(relative))
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		header := &zip.FileHeader{
+			Name:     e.Folder + "/" + filepath.ToSlash(relative),
+			Method:   zip.Deflate,
+			Modified: info.ModTime(),
+		}
+		header.SetMode(info.Mode())
+		entry, err := writer.CreateHeader(header)
 		if err != nil {
 			return err
 		}
@@ -213,14 +233,17 @@ func entryPath(archiveName, root string) (string, bool, error) {
 
 // writeEntry unpacks one file, writing at most budget+1 bytes: an archive that
 // lies about how big its contents are is refused rather than allowed to fill
-// the disk first.
+// the disk first. The mode an archive declares is carried over, because a
+// Plugin is allowed to bring its own binary — an archive may grant execute and
+// nothing more, so setuid, setgid and sticky are dropped and the file is never
+// world-writable.
 func writeEntry(file *zip.File, target string, budget int64) (int64, error) {
 	source, err := file.Open()
 	if err != nil {
 		return 0, fmt.Errorf("open %q in the archive: %w", file.Name, err)
 	}
 	defer source.Close()
-	destination, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	destination, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, unpackedMode(file.Mode()))
 	if err != nil {
 		return 0, fmt.Errorf("unpack %q: %w", file.Name, err)
 	}
@@ -232,7 +255,41 @@ func writeEntry(file *zip.File, target string, budget int64) (int64, error) {
 	if err := destination.Close(); err != nil {
 		return written, fmt.Errorf("unpack %q: %w", file.Name, err)
 	}
+	// The mode is set again after writing because the create mode is filtered
+	// by the process umask, and an archive's execute bit is not the umask's
+	// business. Windows has no such bit and reports a synthetic mode, so the
+	// call is made only where it means something.
+	if err := os.Chmod(target, unpackedMode(file.Mode())); err != nil {
+		return written, fmt.Errorf("set the mode on %q: %w", file.Name, err)
+	}
 	return written, nil
+}
+
+// unpackedMode is what an archive entry is allowed to become. The base is
+// readable and writable by its owner, which is all a Plugin's own files need;
+// the only thing an archive may add to that is execute, for the binaries
+// `docs/PLUGINS.md` lets a Plugin carry. Setuid, setgid, sticky and
+// world-writable are dropped rather than honoured: an archive is a folder from
+// a stranger, and the panel is not going to run what it hands over as anyone
+// but itself.
+//
+// It takes a mode rather than the zip entry so the decision is a pure one, and
+// a test can pin it on a platform that has no execute bit to read back.
+func unpackedMode(from fs.FileMode) fs.FileMode {
+	mode := fs.FileMode(0o644)
+	if from.Perm()&0o111 != 0 {
+		// Execute is granted on the owner, and on the group and others only if
+		// the archive asked for it there. A file nobody but the owner may run
+		// is exactly what a Plugin's own binary should be.
+		mode |= 0o100
+		if from.Perm()&0o010 != 0 {
+			mode |= 0o010
+		}
+		if from.Perm()&0o001 != 0 {
+			mode |= 0o001
+		}
+	}
+	return mode
 }
 
 func readEntry(file *zip.File) ([]byte, error) {

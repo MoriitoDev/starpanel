@@ -12,6 +12,24 @@ services:
     volumes:
       - star-panel-data:/app/data
       - star-panel-themes:/app/themes
+      # The disk Plugin measures and cleans the *host's* waste, and a container
+      # cannot see the host's filesystems unless they are mounted where the
+      # Plugin's scanRoots look. Nothing below is required: without them the
+      # Plugin still reports every Disk (statfs works on any mount) and says
+      # which Scan Roots it cannot see. Read-only is the right default for the
+      # store it measures and never edits.
+      # - /var/log:/var/log
+      # - /var/cache:/var/cache
+      # - /tmp:/tmp
+      # - /var/lib/docker:/var/lib/docker:ro
+      #
+      # The `docker` CLI needs the socket to prune anything, and the socket is
+      # root-owned: mounting it is not enough for the panel's uid 10001. It
+      # needs the host's docker group (see the Plugin's README — `--privileged`
+      # and `user: root` are never the answer).
+      # - /var/run/docker.sock:/var/run/docker.sock
+    # group_add:
+    #   - "${DOCKER_GID:-999}"
 
 volumes:
   star-panel-data:

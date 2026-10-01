@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -63,7 +64,51 @@ func LoadManifest(dir string) (Manifest, error) {
 	if err := m.validate(filepath.Base(dir)); err != nil {
 		return Manifest{}, err
 	}
+	if err := m.executableBackend(dir); err != nil {
+		return Manifest{}, err
+	}
 	return m, nil
+}
+
+// executableBackend catches the one failure that otherwise costs an hour: a
+// Plugin whose own binary arrived without its execute bit. Core would log
+// `backend exited (permission denied); restarting in 2s` on a loop and the
+// Plugins section would look healthy, because `reachable` asks os.Stat and a
+// stat says the file is there.
+//
+// Two things are deliberately out of scope. A bare name is looked up in PATH,
+// where the bit belongs to the machine and is not ours to judge. And on Windows
+// the bit does not exist — chmod there only moves the read-only flag — so the
+// whole check is skipped rather than refusing every Plugin on a platform whose
+// modes mean something else. The Plugin is built for linux/amd64, which is
+// where this question has an answer.
+func (m *Manifest) executableBackend(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	if m.Backend == nil || len(m.Backend.Command) == 0 {
+		return nil
+	}
+	name := m.Backend.Command[0]
+	if !strings.ContainsAny(name, `/\`) {
+		return nil
+	}
+	file := filepath.Join(dir, filepath.FromSlash(name))
+	info, err := os.Stat(file)
+	if err != nil {
+		// A missing file is the existing story: the backend will not start and
+		// core says so in the log. Reporting it here would turn a Plugin with a
+		// typo in one argument into a Plugin the panel refuses to list.
+		return nil
+	}
+	if info.IsDir() {
+		return fmt.Errorf("manifest: backend %q is a directory", name)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		return fmt.Errorf(
+			"manifest: backend %q is not executable — the archive it arrived in lost its mode, so rebuild it with build.ps1 or chmod +x it", name)
+	}
+	return nil
 }
 
 func (m *Manifest) validate(folderName string) error {

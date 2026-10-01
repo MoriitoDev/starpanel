@@ -64,5 +64,11 @@ export interface ThemeList {
 export interface WidgetContext {
   config: Record<string, unknown>;
   pollSeconds: number;
-  fetch: (path: string) => Promise<Response>;
+  /**
+   * Targets this Plugin's `/proxy/` path. `init` is passed through to `fetch`,
+   * so a widget whose Plugin does more than read can POST — a body, a method,
+   * a content type — without reaching for the page's `fetch` and losing the
+   * proxy prefix.
+   */
+  fetch: (path: string, init?: RequestInit) => Promise<Response>;
 }

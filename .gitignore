@@ -20,5 +20,14 @@ apps/api/data/
 # Imported Themes are the owner's, not the repository's.
 apps/api/themes/
 
+# The disk Plugin: the compiled backend and the ZIP it ships as are built, not
+# committed, and its journal is written at runtime. The Go cache lives here too
+# so a build never has to touch the user's profile.
+apps/api/plugins/disk-space/backend
+apps/api/plugins/disk-space/dist/
+apps/api/plugins/disk-space/state/
+.gocache/
+.gomodcache/
+
 # Tool output
 .openchamber/screenshots/
